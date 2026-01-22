@@ -1,0 +1,9 @@
+# vscode
+.vscode/
+
+# Cache
+.cached_datasets/
+__pycache__/
+
+# Plots
+clustering_plots/

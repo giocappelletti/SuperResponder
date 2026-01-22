@@ -1,0 +1,3 @@
+max_clusters: 20
+metric: 'euclidean'
+njobs: -1

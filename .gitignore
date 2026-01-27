@@ -5,5 +5,11 @@
 .cached_datasets/
 __pycache__/
 
+# Logs
+logs/
+
 # Plots
-clustering_plots/
+plots/
+
+# Result files
+results/

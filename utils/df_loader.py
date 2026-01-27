@@ -1,14 +1,15 @@
 import pandas as pd
 import os
 
+from logger.logger import logger
+
 class DataLoader:
     """
     Optimized Utility class for loading microbiome datasets with caching support.
     """
     def __init__(self, cache_dir=".cached_datasets"):
         self.cache_dir = cache_dir
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
+        self.logger = logger
     
     def _sanitize_raw_data(self, df):
         """
@@ -39,26 +40,30 @@ class DataLoader:
         base_name = os.path.basename(path).replace('.csv', '.feather')
         cache_path = os.path.join(self.cache_dir, base_name)
 
-        if os.path.exists(cache_path):
-            print(f"Loading cached dataset from {cache_path}...")
+        if os.path.exists(cache_path):            
+            os.makedirs(self.cache_dir, exist_ok=True)
+            self.logger.info(f"Loading cached dataset from {cache_path}")
             raw_df = pd.read_feather(cache_path)
             
             # Identify columns for the return values
             dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df)
             return dataset, taxa_cols, meta_cols
 
-        print(f"Cache not found. Loading CSV from {path} (this may take a while)...")
-        
+        self.logger.info(f"Cache not found. Loading CSV from {path} (this may take a while)")
+
         try:
             # Use decimal=',' to speed up initial C-engine parsing
             raw_df = pd.read_csv(path, low_memory=False, decimal=',', engine='c')
             dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df)
             
             # Save to cache for next time (reset_index is needed for Feather)
+            self.logger.info(f"Caching dataset to {cache_path} for future use")
             dataset.reset_index().to_feather(cache_path)
+
+            self.logger.info(f"Dataset {path} loaded successfully")
             
             return dataset, taxa_cols, meta_cols
         
         except Exception as e:
-            print(f"Failed to load dataset: {e}")
+            self.logger.error(f"Failed to load dataset from {path}: {e}")
             raise

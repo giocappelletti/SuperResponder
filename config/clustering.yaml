@@ -1,0 +1,31 @@
+elbow_silhouette:
+  max_clusters: 20
+  distance: 'braycurtis'
+  njobs: -1
+  random_state: 42
+  visualize: False
+
+kmedoids:
+  k_values: [2]
+  metric: 'braycurtis'
+  random_state: 42
+  save: True
+  save_format: 'csv'
+
+metadata_analysis:
+  k: 10
+  metric: 'euclidean'
+  random_state: 42
+  save: True
+  save_format: 'csv'
+  visualize: False
+  useless_metadata:            
+    - 'samples'
+    - 'SRA'
+    - 'BioProject'
+    - 'Platform'
+    - 'Bases'
+    - 'avgSpotLen'
+    - 'LibraryLayout'
+    - 'medoids'
+    - 'submedoids'

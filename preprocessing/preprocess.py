@@ -5,8 +5,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
-# Assuming CLRTransformer is imported correctly from your local module
-from DataTransformers.data_transformers import CLRTransformer
+from dataTransformers.data_transformers import CLRTransformer
+from logger.logger import logger, format_pipeline
 
 class Preprocessor:
     """
@@ -14,7 +14,7 @@ class Preprocessor:
     and compositional (microbiome) data.
     """
 
-    def __init__(self, config_path="Config/dataset.yaml", transformation=CLRTransformer, scaler=StandardScaler):
+    def __init__(self, config_path="config/dataset.yaml", transformation=CLRTransformer, scaler=StandardScaler):
         """
         Initializes the preprocessor with specific transformations and scaling.
         
@@ -23,10 +23,19 @@ class Preprocessor:
             scaler: Scikit-learn scaler class (e.g., StandardScaler).
         """ 
         
+        self.logger = logger
+
         self.config_path = config_path
+
+        self.logger.info(f"Loading preprocessing configuration from {self.config_path}")
+
         self.transformation = transformation
+
+        self.logger.info(f"Preprocessor: Using transformation {self.transformation.__name__}")
+
         self.scaler = scaler
 
+        self.logger.info(f"Preprocessor: Using scaler {self.scaler.__name__}")
         # Load configuration once during initialization
         with open(self.config_path, "r") as f:
             self.config = yaml.safe_load(f)
@@ -37,6 +46,15 @@ class Preprocessor:
         self.categorical_features = self.config.get('categorical_features', [])
         self.ordinal_features = self.config.get('ordinal_features', [])
         self.numeric_features = self.config.get('numeric_features', [])
+
+        self.logger.info(
+            f"Loaded features from config: \n"
+            f"  - Age Order: {', '.join(s for s in self.age_order) if self.age_order else 'None'} \n"
+            f"  - Useless Metadata: {', '.join(self.useless_metadata) if self.useless_metadata else 'None'} \n"
+            f"  - Categorical Features: {', '.join(self.categorical_features) if self.categorical_features else 'None'} \n"
+            f"  - Ordinal Features: {', '.join(self.ordinal_features) if self.ordinal_features else 'None'} \n"
+            f"  - Numeric Features: {', '.join(self.numeric_features) if self.numeric_features else 'None'}"
+        )
 
     def initialize(self, complete_df, use_metadata=True, taxa_cols=None):
         """
@@ -93,6 +111,7 @@ class Preprocessor:
         Internal method to construct the Scikit-learn ColumnTransformer engine.
         """
 
+
         # Pipeline for standard categorical features (One-Hot Encoding)
         cat_pipe = Pipeline([
             ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
@@ -121,6 +140,14 @@ class Preprocessor:
             ('scaler', self.scaler() if self.scaler else 'passthrough')
         ])
 
+        self.logger.info(
+            f"Built preprocessing pipelines:\n"
+            f"{format_pipeline(cat_pipe, 'Categorical features')}"
+            f"{format_pipeline(ord_pipe, 'Ordinal features')}"
+            f"{format_pipeline(num_pipe, 'Numeric features')}"
+            f"{format_pipeline(comp_pipe, 'Compositional features')}"
+        )
+
         # Combine all pipelines into a single ColumnTransformer
         return ColumnTransformer([
             ('cat', cat_pipe, categorical_features),
@@ -129,6 +156,7 @@ class Preprocessor:
             ('comp', comp_pipe, compositional_features),
         ])
 
+    
     def _setup_pipeline(self, X_dataset, useless_metadata, 
                        categorical_features=None, ordinal_features=None, 
                        numeric_features=None, compositional_features=None):
@@ -155,4 +183,3 @@ class Preprocessor:
 
 
     
-

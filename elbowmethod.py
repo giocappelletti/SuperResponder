@@ -33,13 +33,13 @@ if __name__ == "__main__":
     
     
     scaler = Scaler() 
-    X_scaled_taxa = scaler.fit_transform(X_taxa)
+    scaled_taxa = scaler.fit_transform(X_taxa)
 
     clustering = Clustering()
     
-    inertia, silhouette = clustering.compute_elbow_silhouette(X_scaled_taxa)
+    #inertia, silhouette = clustering.compute_elbow_silhouette(X_scaled_taxa)
     
-    cluster_df = clustering.kmedoids(X_scaled_taxa)
+    #cluster_df = clustering.kmedoids(X_scaled_taxa)
 
-    metadata_analysis_df = clustering.metadata_analysis(X_scaled_taxa, dataset, meta_cols)
+    metadata_analysis_df = clustering.metadata_analysis(scaled_taxa, dataset, meta_cols)
     

@@ -6,23 +6,23 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
 from dataTransformers.data_transformers import CLRTransformer
-from logger.logger import logger, format_pipeline
+from logger.logger import logger
+from utils.utils import format_pipeline, validate_lists_of_strings
 
 class Preprocessor:
     """
     Handles preprocessing for both metadata (categorical, ordinal, numeric) 
     and compositional (microbiome) data.
+
+    Parameters
+    ----------
+        config_path (str): Path to the YAML configuration file.
+        transformation (class): Class for compositional transformation (e.g., CLR).
+        scaler (class): Scikit-learn scaler class (e.g., StandardScaler).
     """
 
     def __init__(self, config_path="config/dataset.yaml", transformation=CLRTransformer, scaler=StandardScaler):
-        """
-        Initializes the preprocessor with specific transformations and scaling.
-        
-        Args:
-            transformation: Class for compositional transformation (e.g., CLR).
-            scaler: Scikit-learn scaler class (e.g., StandardScaler).
-        """ 
-        
+
         self.logger = logger
 
         self.config_path = config_path
@@ -36,16 +36,25 @@ class Preprocessor:
         self.scaler = scaler
 
         self.logger.info(f"Preprocessor: Using scaler {self.scaler.__name__}")
-        # Load configuration once during initialization
+
         with open(self.config_path, "r") as f:
             self.config = yaml.safe_load(f)
         
-        # Load features from YAML
         self.age_order = self.config.get('age_order', [])
         self.useless_metadata = self.config.get('useless_metadata', [])
         self.categorical_features = self.config.get('categorical_features', [])
         self.ordinal_features = self.config.get('ordinal_features', [])
         self.numeric_features = self.config.get('numeric_features', [])
+
+        params_lists = [
+            self.age_order,
+            self.useless_metadata,
+            self.categorical_features,
+            self.ordinal_features,
+            self.numeric_features
+        ]
+
+        validate_lists_of_strings(params_lists)
 
         self.logger.info(
             f"Loaded features from config: \n"
@@ -56,14 +65,19 @@ class Preprocessor:
             f"  - Numeric Features: {', '.join(self.numeric_features) if self.numeric_features else 'None'}"
         )
 
-    def initialize(self, complete_df, use_metadata=True, taxa_cols=None):
+
+    def initialize(self, complete_df: pd.DataFrame, use_metadata=True, taxa_cols: list = None) -> tuple:
         """
         Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
         
-        Args:
-            complete_df: The complete DataFrame from DataLoader.
-            use_metadata: Boolean flag to determine if metadata should be included.
-            taxa_cols: List of taxonomic columns.
+        Parameters
+        ----------
+            complete_df (pd.DataFrame): The complete DataFrame from DataLoader.
+            use_metadata (bool, default=True): Boolean flag to determine if metadata should be included.
+            taxa_cols (list, default=None): List of taxonomic columns.
+        Returns
+        -------
+            tuple (DataFrame, ColumnTransformer)
         """
         if not use_metadata:
             # Only taxa, no preprocessing pipeline for metadata
@@ -71,11 +85,11 @@ class Preprocessor:
 
         # Filter features present in the dataframe
         features_to_keep = [col for col in complete_df.columns if col not in self.useless_metadata]
-        X_set_mod = complete_df[features_to_keep].copy()
+        filtered_dataset = complete_df[features_to_keep].copy()
 
         # Use the existing setup_pipeline logic
         return self._setup_pipeline(
-            X_set_mod, 
+            filtered_dataset, 
             self.useless_metadata, 
             self.categorical_features, 
             self.ordinal_features, 
@@ -83,34 +97,33 @@ class Preprocessor:
             compositional_features=taxa_cols
         )
 
-    def _fillna_metadata(self, X_dataset, useless_metadata):
+    def _fillna_metadata(self, dataset, useless_metadata):
         """
         Fills missing values in key metadata columns to prevent pipeline crashes.
         Operates on a copy to avoid unintended side effects on the original DataFrame.
         """
         # Work on a copy to ensure immutability of the input
-        df = X_dataset.copy()
+        dataframe = dataset.copy()
         
         # Lowercase and fill missing for 'sex'
-        if 'sex' not in useless_metadata and 'sex' in df.columns:
-            df['sex'] = df['sex'].str.lower().fillna('missing')
+        if 'sex' not in useless_metadata and 'sex' in dataframe.columns:
+            dataframe['sex'] = dataframe['sex'].str.lower().fillna('missing')
 
         # Convert to string and fill missing for 'age' (ordinal grouping)
-        if 'age' not in useless_metadata and 'age' in df.columns:
-            df['age'] = df['age'].fillna('missing').astype(str)
+        if 'age' not in useless_metadata and 'age' in dataframe.columns:
+            dataframe['age'] = dataframe['age'].fillna('missing').astype(str)
 
         # Fill missing for 'atb' (antibiotics)
-        if 'atb' not in useless_metadata and 'atb' in df.columns:
-            df['atb'] = df['atb'].fillna('missing')
+        if 'atb' not in useless_metadata and 'atb' in dataframe.columns:
+            dataframe['atb'] = dataframe['atb'].fillna('missing')
             
-        return df
+        return dataframe
 
     def _build_preprocessor_engine(self, categorical_features, ordinal_features, 
                                    numeric_features, compositional_features):
         """
         Internal method to construct the Scikit-learn ColumnTransformer engine.
         """
-
 
         # Pipeline for standard categorical features (One-Hot Encoding)
         cat_pipe = Pipeline([
@@ -162,10 +175,6 @@ class Preprocessor:
                        numeric_features=None, compositional_features=None):
         """
         Main entry point to prepare the dataset and the preprocessing engine.
-        
-        Returns:
-            X_prepared: The DataFrame with filled missing values.
-            preprocessor: The fitted-ready ColumnTransformer.
         """
         # Ensure default empty lists if none provided
         cat_f = categorical_features or []

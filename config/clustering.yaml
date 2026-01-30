@@ -13,7 +13,7 @@ kmedoids:
   save_format: 'csv'
 
 metadata_analysis:
-  k: 10
+  n_clusters: 5
   metric: 'euclidean'
   random_state: 42
   save: False

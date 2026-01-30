@@ -3,7 +3,7 @@ elbow_silhouette:
   distance: 'braycurtis'
   njobs: -1
   random_state: 42
-  visualize: False
+  visualize: True
 
 kmedoids:
   k_values: [2]
@@ -16,9 +16,9 @@ metadata_analysis:
   k: 10
   metric: 'euclidean'
   random_state: 42
-  save: True
+  save: False
   save_format: 'csv'
-  visualize: False
+  visualize: True
   useless_metadata:            
     - 'samples'
     - 'SRA'

@@ -11,7 +11,7 @@ class DataLoader:
         self.cache_dir = cache_dir
         self.logger = logger
     
-    def _sanitize_raw_data(self, df):
+    def _sanitize_raw_data(self, df, drop_response=True):
         """
         Performs basic data sanitization (type conversion and indexing).
         Handles commas and ensures numeric types for taxonomic features.
@@ -21,7 +21,7 @@ class DataLoader:
         if 'samples' in dataset.columns:
             dataset = dataset.set_index('samples')
 
-        if 'response' in dataset.columns:
+        if 'response' in dataset.columns and drop_response:
             dataset = dataset.drop(columns=['response'])
 
         taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
@@ -31,7 +31,7 @@ class DataLoader:
 
         return dataset, taxa_cols, meta_cols
 
-    def load_dataset(self, path):
+    def load_dataset(self, path, drop_response=True):
         """
         Loads dataset using a Feather cache if available. 
         Otherwise, loads CSV, sanitizes it, and saves a cache for next time.
@@ -40,13 +40,15 @@ class DataLoader:
         base_name = os.path.basename(path).replace('.csv', '.feather')
         cache_path = os.path.join(self.cache_dir, base_name)
 
+        if not drop_response:
+            cache_path = cache_path.replace('.feather', '_response.feather')
+
         if os.path.exists(cache_path):            
-            os.makedirs(self.cache_dir, exist_ok=True)
             self.logger.info(f"Loading cached dataset from {cache_path}")
             raw_df = pd.read_feather(cache_path)
             
             # Identify columns for the return values
-            dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df)
+            dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df, drop_response=drop_response)
             return dataset, taxa_cols, meta_cols
 
         self.logger.info(f"Cache not found. Loading CSV from {path} (this may take a while)")
@@ -54,10 +56,12 @@ class DataLoader:
         try:
             # Use decimal=',' to speed up initial C-engine parsing
             raw_df = pd.read_csv(path, low_memory=False, decimal=',', engine='c')
-            dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df)
+            dataset, taxa_cols, meta_cols = self._sanitize_raw_data(raw_df, drop_response=drop_response)
             
             # Save to cache for next time (reset_index is needed for Feather)
             self.logger.info(f"Caching dataset to {cache_path} for future use")
+            os.makedirs(self.cache_dir, exist_ok=True)
+            
             dataset.reset_index().to_feather(cache_path)
 
             self.logger.info(f"Dataset {path} loaded successfully")

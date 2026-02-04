@@ -12,9 +12,17 @@ kmedoids:
   save: False
   save_format: 'csv'
 
+modenesi:
+  k_values: [2]
+  metric: 'euclidean'
+  random_state: 42
+  save: False
+  save_format: 'csv'
+  njobs: -1
+
 analysis:
   n_clusters: 5
-  metric: 'euclidean'
+  metric: 'braycurtis'
   random_state: 42
   save: False
   save_format: 'csv'

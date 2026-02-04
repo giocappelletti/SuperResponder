@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import csv
+import yaml
 
 from logger.logger import logger
 
@@ -17,51 +18,58 @@ class DataLoader:
     def __init__(self, cache_dir=".cached_datasets"):
         self.cache_dir = cache_dir
         self.logger = logger
-    
 
-    def _sanitize_raw_data(self, df: pd.DataFrame, drop_response=True, unifrac=False):
+
+    def _set_index_to_samples(self, dataset: pd.DataFrame):
+        """
+        Set "samples" column as index if it exists.
+        """
+        if 'samples' in dataset.columns:
+            dataset = dataset.set_index('samples')
+        
+        return dataset
+
+
+
+    def _sanitize_raw_data(self, df: pd.DataFrame, drop_response=True):
         """
         Performs basic data sanitization (type conversion and indexing) based on the dataset type.
         """
         dataset = df.copy()
 
-        if not unifrac:
-            if 'samples' in dataset.columns:
-                dataset = dataset.set_index('samples')
-
-            if 'response' in dataset.columns and drop_response:
-                dataset = dataset.drop(columns=['response'])
-
-            taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
-            meta_cols = [col for col in dataset.columns if col not in taxa_cols]
-
-            dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors='coerce')
-
-            return dataset, taxa_cols, meta_cols
         
-        else:
-            dataset.index = dataset.index.str.strip()
-            dataset.columns = dataset.columns.str.strip()
+        self._set_index_to_samples(dataset)
+        
 
-            common_samples = dataset.index.intersection(dataset.index)
+        if 'response' in dataset.columns and drop_response:
+            dataset = dataset.drop(columns=['response'])
+
+        taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
+        meta_cols = [col for col in dataset.columns if col not in taxa_cols]
+
+        dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors='coerce')
+
+        return dataset, taxa_cols, meta_cols
             
-            dataset_aligned = dataset.loc[common_samples].copy()
-            distance_matrix_aligned = dataset.loc[common_samples, common_samples].values
 
-            return dataset, dataset_aligned, distance_matrix_aligned
-
-
-    def _cache_path(self, path: str, extension: str, drop_response=True):
+    def _load_unifrac(self, df: pd.DataFrame, orig_dataset_path: str):
         """
-        Generate cache path based on original dataset path and drop_response flag.
+        Clean unifrac datasets and intersect with original dataset.
         """
-        base_name = os.path.basename(path).replace(extension, 'feather')
-        cache_path = os.path.join(self.cache_dir, base_name)
 
-        if not drop_response:
-            cache_path = cache_path.replace('.feather', '_with_response.feather')
+        df.index = df.index.str.strip()
+        df.columns = df.columns.str.strip()
+
+        orig_dataset = self.load_dataset(orig_dataset_path, drop_response=False, sanitize=False)
+
+        orig_dataset = self._set_index_to_samples(orig_dataset)
+
+        common_samples = orig_dataset.index.intersection(df.index)
         
-        return cache_path
+        dataset_aligned = orig_dataset.loc[common_samples].copy()
+        distance_matrix_aligned = df.loc[common_samples, common_samples].values
+        
+        return df, dataset_aligned, distance_matrix_aligned, orig_dataset
 
 
     def _cache_dataset(self, dataset: pd.DataFrame, cache_path: str):
@@ -73,8 +81,9 @@ class DataLoader:
         
         try:
             dataset = dataset.copy()
-            dataset.reset_index().to_feather(cache_path)
-            self.logger.info(f"Dataset {cache_path} cached successfully")
+            dataset.to_feather(cache_path)
+            
+            self.logger.info(f"Dataset cached successfully")
 
         except Exception as e:
             self.logger.warning(f"Failed to cache dataset to {cache_path}: {e}")
@@ -92,10 +101,6 @@ class DataLoader:
             except Exception as e:
                 self.logger.error(f"Failed to load cached dataset from {cache_path}: {e}")
                 raise
-            
-            # If an 'index' column exists, set it as the DataFrame index
-            if 'index' in cached_dataset.columns:
-                cached_dataset = cached_dataset.set_index('index')
             
             return cached_dataset
     
@@ -117,7 +122,13 @@ class DataLoader:
             return ','
    
     
-    def load_dataset(self, path: str, drop_response=True, unifrac=False, sanitize=True) -> tuple[pd.DataFrame, list, list] | tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+    def load_dataset(self, 
+                     path: str,
+                     drop_response=True,
+                     sanitize=True, 
+                     unifrac=False, 
+                     orig_dataset_path : str = None,
+                     index_col=None) -> tuple[pd.DataFrame, list, list] | tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
         """
         Loads dataset using a Feather cached version if available. 
         Otherwise loads file, sanitizes it, and saves a cache for next time.
@@ -131,40 +142,54 @@ class DataLoader:
 
         Returns
         -------
-            **tuple (pd.DataFrame, list, list) or tuple (pd.DataFrame, pd.DataFrame, np.ndarray)**
+            ** pd.Dataframe or tuple (pd.DataFrame, list, list) or tuple (pd.DataFrame, pd.DataFrame, np.ndarray, pd.DataFrame)**
             
             If `unifrac` is False:
-                - dataset (pd.DataFrame): Loaded and sanitized dataset
-                - taxa_cols (list): List of taxa column names
-                - meta_cols (list): List of metadata column names
+                if `sanitize` is True:
+                    - dataset (pd.DataFrame): Loaded and sanitized dataset
+                    - taxa_cols (list): List of taxa column names
+                    - meta_cols (list): List of metadata column names
+                else:
+                    - dataset (pd.DataFrame): Loaded dataset
+
             If `unifrac` is True:
-                - dataset (pd.DataFrame): Original distance matrix
+                - dataset (pd.DataFrame): unifrac dataset
                 - dataset_aligned (pd.DataFrame): Aligned distance matrix with samples
                 - distance_matrix_aligned (np.ndarray): Aligned distance matrix as numpy array
+                - orig_dataset (pd.DataFrame): Original raw dataset with metadata
 
         Examples
         --------
         >>> dataset, taxa_cols, meta_cols = dataloader.load_dataset('datasets/raw_dataset.csv')
         """
+
         # Create a unique cache name based on the original filename
         extension = path.split('.')[-1]
-        cache_path = self._cache_path(path, extension, drop_response)        
+        base_name = os.path.basename(path).replace(extension, 'feather')
+        cache_path = os.path.join(self.cache_dir, base_name)   
 
         if os.path.exists(cache_path):            
             dataset = self._load_cached_dataset(cache_path)
 
+            if unifrac:
+                assert orig_dataset_path is not None, "orig_dataset_path must be provided if unifrac=True"
+                return self._load_unifrac(dataset, orig_dataset_path)
+
             if sanitize:
-                return self._sanitize_raw_data(dataset, drop_response, unifrac) 
+                return self._sanitize_raw_data(dataset, drop_response) 
             else:
-                return dataset, [], []
+                return dataset
         
-        self.logger.info(f"Cache not found. Loading {extension} file from {path} (this may take a while)")
+        if not unifrac:
+            self.logger.info(f"Cache not found. Loading {extension} file from {path} (this may take a while)")
+        else:
+            self.logger.info(f"Loading unifrac file from {path}")
 
         inferred_separator = self._infer_csv_separator(path) if extension == 'csv' else '\t'
 
         try:
             if extension in ['tsv', 'csv']:
-                dataset = pd.read_csv(path, sep=inferred_separator, low_memory=False, decimal=',', engine='c')
+                dataset = pd.read_csv(path, sep=inferred_separator, low_memory=False, decimal=',', engine='c', index_col=index_col)
             
             else:
                 raise ValueError(f"Unsupported file extension: {extension}")
@@ -177,11 +202,16 @@ class DataLoader:
             self.logger.error(f"Failed to load dataset from {path}: {e}")
             raise
             
-        self._cache_dataset(dataset, cache_path)
+        if extension == "csv":
+            self._cache_dataset(dataset, cache_path)
         
+        if unifrac:
+            assert orig_dataset_path is not None, "orig_dataset_path must be provided if unifrac=True"
+            return self._load_unifrac(dataset, orig_dataset_path)
+
         if sanitize:
-            return self._sanitize_raw_data(dataset, drop_response, unifrac)
+            return self._sanitize_raw_data(dataset, drop_response)
         else:
-            return dataset, [], []  
+            return dataset
         
        

@@ -1,6 +1,9 @@
 # Metadata and Feature Configuration for Responder Project
 useless_metadata:
- 
+  - samples
+  - SRA
+  - BioProject
+  - ORR
 
 categorical_features:
   - country

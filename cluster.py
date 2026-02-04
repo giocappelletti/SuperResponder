@@ -19,7 +19,6 @@ if __name__ == "__main__":
 
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 
-
     preprocessor = Preprocessor(
         config_path=dataset_config_path,
         transformation=CLRTransformer,
@@ -31,10 +30,7 @@ if __name__ == "__main__":
         use_metadata=False,
         taxa_cols=taxa_cols
     )
-    
-    
+        
     scaled_taxa = Scaler().fit_transform(X_taxa)
 
-    inertia, silhouette = Clustering().compute_elbow_silhouette(scaled_taxa)
-    
-    
+    cluster_df = Clustering().kmedoids(scaled_taxa)

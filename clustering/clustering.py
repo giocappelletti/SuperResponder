@@ -4,7 +4,7 @@ import pandas as pd
 
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.stats import chi2_contingency
 
 from joblib import Parallel, delayed
@@ -13,6 +13,8 @@ from logger.logger import logger
 from utils.serialization import serializer
 from utils.utils import validate_config_param_type, validate_list_of_strings
 from visualization.plotting import plotter
+from utils.df_loader import DataLoader
+
 
 class Clustering:
     """
@@ -38,12 +40,6 @@ class Clustering:
         except Exception as e:
             self.logger.error(f"Error loading config from file {self.config_path}: {e}")
 
-    def _bray_matrix(self, data):
-        """
-        Computes the Bray-Curtis distance matrix for the given data.
-        """
-        return squareform(pdist(data, metric='braycurtis'))
-
 
     def _k_medoids_fit(self, data, n_clusters, metric, random_state):
         """
@@ -53,24 +49,27 @@ class Clustering:
         return KMedoids(n_clusters, metric, random_state=random_state).fit_predict(data)
 
 
-    def _run_single_k(self, n_clusters, data, metric, random_state):
+    def _run_single_k(self, n_clusters, data, metric, random_state, silhouette=True):
         """
         Runs K-Medoids for a single k value.
         """
         kmedoids = KMedoids(n_clusters, metric, random_state=random_state).fit(data)
 
-        score = silhouette_score(data, kmedoids.labels_, metric=metric) if n_clusters > 1 else np.nan
+        if silhouette:
+            score = silhouette_score(data, kmedoids.labels_, metric=metric) if n_clusters > 1 else np.nan
+            return kmedoids.inertia_, score
+        
+        return data[kmedoids.medoid_indices_] # medoid points
 
-        return kmedoids.inertia_, score
-    
+        
 
-    def _analysis(self, config, data: np.ndarray, dataset: pd.DataFrame):
+    def _analysis(self, config, data: np.ndarray, dataset: pd.DataFrame, resp_analisys=False):
         """
         Read analysis data from file and computes k medoids.
         """
         config = self.config.get('analysis', {})
 
-        n_clusters = config.get('n_clusters', 5)
+        n_clusters = 2 if resp_analisys else config.get('n_clusters', 5)
         validate_config_param_type("n_clusters", n_clusters, int)
         if n_clusters < 1:
             self.logger.error(f"n_clusters must be a positive integer, got {n_clusters}")
@@ -102,23 +101,69 @@ class Clustering:
         visualize = config.get('visualize', True)
         validate_config_param_type("visualize", visualize, bool)
 
+        distance = metric 
+
+        if distance == "braycurtis":
+            data = squareform(pdist(data, metric='braycurtis'))
+            metric = 'precomputed'
+
+        elif distance == 'unifrac':
+            metric = 'precomputed'
+
         labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
 
         # Add cluster labels to dataset
         dataset = dataset.copy()
         dataset['cluster'] = labels
-        return dataset, n_clusters, metric, save, save_format, useless_metadata, visualize
-
-
-    def _compute_contingency(self, dataset: pd.DataFrame):
         
-        contingency = pd.crosstab(dataset['cluster'], dataset['response'])
+        return dataset, n_clusters, distance, save, save_format, useless_metadata, visualize
+
+
+    def _compute_contingency(self, dataset: pd.DataFrame, col: str):
+        
+        contingency = pd.crosstab(dataset['cluster'], dataset[col])
 
         chi2, p, _, _ = chi2_contingency(contingency)
 
-        contingency /= contingency.sum().sum()
+        contingency_prop  = contingency / contingency.sum().sum()
 
-        return contingency, chi2, p
+        return contingency_prop, chi2, p
+
+
+    def _validate_clusters(self, config):
+        """
+        Helper to validate kmedoids params in yaml config file
+        """
+        k_values = config.get('k_values', [2])
+        validate_config_param_type("k_values", k_values, list)
+
+        for k in k_values:
+            validate_config_param_type("k_s", k, int)
+            if k < 1:
+                self.logger.error(f"k must be a positive integer, got {k}")
+                raise ValueError()
+        
+        metric = config.get('metric', 'euclidean')
+        validate_config_param_type("metric", metric, str)
+        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
+            self.logger.error(
+                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
+            )
+            raise ValueError()
+
+        random_state = config.get('random_state', 42)
+        validate_config_param_type("random_state", random_state, int)
+
+        save = config.get('save', True)
+        validate_config_param_type("save", save, bool)
+
+        save_format = config.get('save_format', 'csv')
+        validate_config_param_type("save_format", save_format, str)
+        if save_format not in ['csv', 'tsv', 'xlsx']:
+            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
+            raise ValueError()
+        
+        return k_values, metric, random_state, save, save_format
 
 
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
@@ -168,7 +213,7 @@ class Clustering:
         validate_config_param_type("visualize", visualize, bool)
 
         if distance == 'braycurtis':
-            data = self._bray_matrix(data)
+            data = squareform(pdist(data, metric='braycurtis'))
 
         self.logger.info(f"Computing Elbow and Silhouette scores up to k={max_clusters} using metric={metric}")
 
@@ -201,45 +246,22 @@ class Clustering:
 
         config = self.config.get('kmedoids', {})
 
-        k_values = config.get('k_values', [2])
-        validate_config_param_type("k_values", k_values, list)
-
-        for k in k_values:
-            validate_config_param_type("k_s", k, int)
-            if k < 1:
-                self.logger.error(f"k must be a positive integer, got {k}")
-                raise ValueError()
-        
-        metric = config.get('metric', 'euclidean')
-        validate_config_param_type("metric", metric, str)
-        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
-            self.logger.error(
-                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
-            )
-            raise ValueError()
-
-        random_state = config.get('random_state', 42)
-        validate_config_param_type("random_state", random_state, int)
-
-        save = config.get('save', True)
-        validate_config_param_type("save", save, bool)
-
-        save_format = config.get('save_format', 'csv')
-        validate_config_param_type("save_format", save_format, str)
-        if save_format not in ['csv', 'tsv', 'xlsx']:
-            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
-            raise ValueError()
+        k_values, metric, random_state, save, save_format = self._validate_clusters(config)
 
         cluster_counts = {}
 
+        working_data = data
+        working_metric = metric
+        if metric == "braycurtis":
+            working_data = squareform(pdist(data, metric='braycurtis'))
+            working_metric = 'precomputed'
+        elif metric == 'unifrac':
+            working_metric = 'precomputed'
+
         for n_clusters in k_values:
-            if metric == "braycurtis":
-                data = pd.DataFrame(self._bray_matrix(data)).values
-
-
-            labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
+            labels = self._k_medoids_fit(working_data, n_clusters, working_metric, random_state)
             counts = pd.Series(labels).value_counts().sort_index()
-            cluster_counts[k] = counts
+            cluster_counts[n_clusters] = counts
 
         cluster_df = pd.DataFrame(cluster_counts).fillna(0).astype(int)
 
@@ -302,7 +324,7 @@ class Clustering:
 
         for col in categorical_meta:
             
-            contingency, chi2, p = self._compute_contingency(dataset)
+            contingency, chi2, p = self._compute_contingency(dataset, col)
            
             if save:
                 time_str = self.serializer.save_file(
@@ -339,26 +361,85 @@ class Clustering:
         return summary_df
 
 
-    def response_analysis(self, data: np.ndarray, dataset: pd.DataFrame, path_dataset: str):
+    def response_analysis(self, 
+                          data_matrix: np.ndarray,
+                          dataset: pd.DataFrame, 
+                          orig_dataset: str | pd.DataFrame) -> tuple[pd.DataFrame, float, float]:
         """
         Performs k-medoids clustering and analyzes "response" label associated with clusters.
         
         Parameters
         ----------
-            data (np.ndarray): Scaled data matrix
+            data_matrix (np.ndarray): Data matrix
             dataset (pd.DataFrame): DataFrame with metadata
-            meta_cols (list): metadata columns list
+            orig_dataset: Path to raw dataset or pre_loaded dataframe
 
-        Returns:
-            summary_df: DataFrame with metadata analysis results
-        """
+        Returns
+        ----------
+            tuple (contingency, chi2, p)
+                """
 
-        dataset, n_clusters, metric, save, save_format, _, visualize = self._analysis(
-            self.config, data, dataset
+        dataset, n_clusters, distance, save, save_format, _, visualize = self._analysis(
+            self.config, data_matrix, dataset, resp_analisys=True
+        )
+        
+        if isinstance(orig_dataset, str):
+            orig_dataset = DataLoader().load_dataset(orig_dataset, drop_response=False, sanitize=False)
+
+        assert "response" in orig_dataset.columns, \
+            "Response column not found in raw dataset!"
+
+        dataset['response'] = orig_dataset['response'].loc[dataset.index]
+        
+        contingency, chi2, p = self._compute_contingency(dataset, "response")
+
+        if save:
+            self.serializer.save_file(
+                data=contingency,
+                subfolder=f"response_analysis/k_{n_clusters}_contingencies",
+                exp_type=f"response_contingency",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=distance
+            )
+        
+        self.logger.info(f"Response chi2: {chi2}, p-value: {p}")
+
+        self.plotter.plot_contingencies([contingency], ["response"], distance, visualize)
+
+        return contingency, chi2, p
+
+
+    def modenesi_analysis(self, data: np.ndarray, ref_data: np.ndarray):
+
+        config = self.config.get('modenesi', {})
+
+        k_values, metric, random_state, save, save_format = self._validate_clusters(config)
+
+        njobs = config.get('n_jobs', -1) 
+        validate_config_param_type("n_jobs", njobs, int)
+        if njobs < -1:
+            self.logger.error(f"Njobs must be either -1 or a positive integer, got {njobs}")
+            raise ValueError()
+
+        cluster_distributions = {}
+
+        self.logger.info(f"Computing medoids for k ={k_values} using metric={metric}")
+
+        medoid_points = Parallel(n_jobs=njobs)(
+            delayed(self._run_single_k)(cluster_idx, ref_data, metric, random_state, silhouette=False) for cluster_idx in k_values
         )
 
-        assert "response" in dataset.columns, \
-            self.logger.error(f"Response column not found in dataset!"
-                              f"Use drop_response=False in Dataloader")
+        for i, k in enumerate(k_values):
+            dist_to_medoids = cdist(data, medoid_points[i])
+            modenesi_clusters = np.argmin(dist_to_medoids, axis=1)
+            cluster_distributions[k] = pd.Series(modenesi_clusters).value_counts().sort_index()
 
-        contingency, chi2, p = self._compute_contingency(dataset)
+        summary_df = pd.DataFrame(cluster_distributions).fillna(0).astype(int)
+
+        summary_df.index.name = "cluster_idx"
+        summary_df = summary_df.rename(columns={k: f"k_{k}" for k in summary_df.columns})
+
+        print(summary_df)
+
+

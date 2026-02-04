@@ -16,11 +16,11 @@ class Scaler:
     def __init__(self, transformer=CLRTransformer, scaler=StandardScaler):
         self.logger = logger
         
-        self.transformer = transformer
-        self.logger.info(f"Scaler: Using transformation {self.transformer.__name__}")
+        self.transformer = transformer()
+        self.logger.info(f"Scaler: Using transformation {self.transformer}")
         
-        self.scaler = scaler
-        self.logger.info(f"Scaler: Using scaler {self.scaler.__name__}")
+        self.scaler = scaler()
+        self.logger.info(f"Scaler: Using scaler {self.scaler}")
     
     def fit_transform(self, data):
         """
@@ -34,5 +34,9 @@ class Scaler:
         -------
             scaled_data (pd.DataFrame): Scaled data
         """
-        clr_data = self.transformer().fit_transform(data)
-        return self.scaler().fit_transform(clr_data)
+        clr_data = self.transformer.fit_transform(data)
+        return self.scaler.fit_transform(clr_data)
+
+    def transform(self, data):
+        clr_data = self.transformer.transform(data)
+        return self.scaler.transform(clr_data)

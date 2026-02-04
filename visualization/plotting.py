@@ -36,8 +36,13 @@ class Plotter:
         safe_name = sanitize_filename(metric_name)
         save_path = os.path.join(out_path, f"{exp_name}_{safe_name}.png")
         
-        plt.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
-        self.logger.info(f"Plot saved to: {save_path}")
+        try:
+            plt.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
+            self.logger.info(f"Plot saved to: {save_path}")
+        
+        except:
+            self.logger.warning(f"Error saving plot to: {save_path}")
+
 
     def plot_elbow_and_silhouette(self, ks, inertias, silhouettes, tick_values, 
                                   metric_name, visualize=True):
@@ -81,17 +86,15 @@ class Plotter:
         num_contingencies = len(contingencies)
         
         # Max 3 columns is usually better for readability with legends
-        ncols = 3 
-        nrows = (num_contingencies + ncols - 1) // ncols
+        ncols = max(1, min(3, num_contingencies))
+        nrows = max(1, (num_contingencies + ncols - 1) // ncols)
         
         # Increased width per column to accommodate legends
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5))
+        # squeeze=False ensures axes is always a 2D array, simplifying flattening
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5), squeeze=False)
         fig.canvas.manager.set_window_title(f"Metadata Distribution - {distance_name}")
         
-        if num_contingencies == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten()
+        axes = axes.flatten()
             
         for i in range(num_contingencies):
             col = cols[i]
@@ -99,6 +102,7 @@ class Plotter:
             contingency_prop = contingencies[i]
             
             # Check number of unique categories to decide on legend
+           # Check number of unique categories to decide on legend
             num_categories = len(contingency_prop.columns)
             show_legend = num_categories <= 15 # Hide legend if too many items
             
@@ -124,6 +128,7 @@ class Plotter:
         plt.tight_layout(rect=[0, 0, 0.9, 1])
 
         if visualize:
+            self.logger.info("Displaying plot")
             plt.show()
         else:
             self._save("clustering", "contingencies_distribution",

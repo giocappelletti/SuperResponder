@@ -62,6 +62,63 @@ class Clustering:
         score = silhouette_score(data, kmedoids.labels_, metric=metric) if n_clusters > 1 else np.nan
 
         return kmedoids.inertia_, score
+    
+
+    def _analysis(self, config, data: np.ndarray, dataset: pd.DataFrame):
+        """
+        Read analysis data from file and computes k medoids.
+        """
+        config = self.config.get('analysis', {})
+
+        n_clusters = config.get('n_clusters', 5)
+        validate_config_param_type("n_clusters", n_clusters, int)
+        if n_clusters < 1:
+            self.logger.error(f"n_clusters must be a positive integer, got {n_clusters}")
+            raise ValueError()
+
+        metric = config.get('metric', 'euclidean')
+        validate_config_param_type("metric", metric, str)
+        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
+            self.logger.error(
+                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
+            )
+            raise ValueError()
+
+        random_state = config.get('random_state', 42)
+        validate_config_param_type("random_state", random_state, int)
+
+        save = config.get('save', True)
+        validate_config_param_type("save", save, bool)
+
+        save_format = config.get('save_format', 'csv')
+        validate_config_param_type("save_format", save_format, str)
+        if save_format not in ['csv', 'tsv', 'xlsx']:
+            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
+            raise ValueError()
+        
+        useless_metadata = config.get('useless_metadata', [])
+        validate_list_of_strings({"useless_metadata": useless_metadata})
+
+        visualize = config.get('visualize', True)
+        validate_config_param_type("visualize", visualize, bool)
+
+        labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
+
+        # Add cluster labels to dataset
+        dataset = dataset.copy()
+        dataset['cluster'] = labels
+        return dataset, n_clusters, metric, save, save_format, useless_metadata, visualize
+
+
+    def _compute_contingency(self, dataset: pd.DataFrame):
+        
+        contingency = pd.crosstab(dataset['cluster'], dataset['response'])
+
+        chi2, p, _, _ = chi2_contingency(contingency)
+
+        contingency /= contingency.sum().sum()
+
+        return contingency, chi2, p
 
 
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
@@ -198,6 +255,8 @@ class Clustering:
                 save_format=save_format,
                 distance_type=metric
             )
+        else:
+            self.logger.info(f"Kmedoids groups: {cluster_df}")
 
         return cluster_df
 
@@ -215,52 +274,22 @@ class Clustering:
             summary_df: DataFrame with metadata analysis results
         """
 
-        config = self.config.get('metadata_analysis', {})
+        dataset, n_clusters, metric, save, save_format, useless_metadata, visualize = self._analysis(
+            self.config, data, dataset
+        )
 
-        n_clusters = config.get('n_clusters', 5)
-        validate_config_param_type("n_clusters", n_clusters, int)
-        if n_clusters < 1:
-            self.logger.error(f"n_clusters must be a positive integer, got {n_clusters}")
-            raise ValueError()
 
-        metric = config.get('metric', 'euclidean')
-        validate_config_param_type("metric", metric, str)
-        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
-            self.logger.error(
-                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
-            )
-            raise ValueError()
-
-        random_state = config.get('random_state', 42)
-        validate_config_param_type("random_state", random_state, int)
-
-        save = config.get('save', True)
-        validate_config_param_type("save", save, bool)
-
-        save_format = config.get('save_format', 'csv')
-        validate_config_param_type("save_format", save_format, str)
-        if save_format not in ['csv', 'tsv', 'xlsx']:
-            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
-            raise ValueError()
+        if useless_metadata is None:
+            self.logger.info("Using all metedata columns") 
+            categorical_meta = meta_cols
         
-        useless_metadata = config.get('useless_metadata', [])
-        validate_list_of_strings(useless_metadata)
+        else:
+            self.logger.info("Filtering and cleaning categorical metadata columns")
 
-        visualize = config.get('visualize', True)
-        validate_config_param_type("visualize", visualize, bool)
-
-        labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
-
-        # Add cluster labels to dataset
-        dataset = dataset.copy()
-        dataset['cluster'] = labels
-
-        self.logger.info("Filtering and cleaning categorical metadata columns")
-
-        # Filter categorical metadata        
-        categorical_meta = [
-            col for col in meta_cols if col not in useless_metadata
-        ]
+            # Filter categorical metadata        
+            categorical_meta = [
+                col for col in meta_cols if col not in useless_metadata
+            ]
 
         # Clean categorical metadata
         for col in categorical_meta:
@@ -272,7 +301,9 @@ class Clustering:
         cols = []
 
         for col in categorical_meta:
-            contingency = pd.crosstab(dataset['cluster'], dataset[col])
+            
+            contingency, chi2, p = self._compute_contingency(dataset)
+           
             if save:
                 time_str = self.serializer.save_file(
                     data=contingency,
@@ -283,14 +314,11 @@ class Clustering:
                     distance_type=metric
                 )
 
-            self.logger.info(f"Performing chi-squared test for metadata column: {col}")
             # chi-squared test
-            chi2, p, _, _ = chi2_contingency(contingency)
             summary_results.append({"metadata": col, "chi2": chi2, "p_value": p})
 
             # cluster proportion plot
-            contingency_prop = contingency / contingency.sum().sum()
-            contingencies.append(contingency_prop)
+            contingencies.append(contingency)
             cols.append(col)
 
         self.plotter.plot_contingencies(contingencies, cols, metric, visualize)
@@ -309,3 +337,28 @@ class Clustering:
             )
         
         return summary_df
+
+
+    def response_analysis(self, data: np.ndarray, dataset: pd.DataFrame, path_dataset: str):
+        """
+        Performs k-medoids clustering and analyzes "response" label associated with clusters.
+        
+        Parameters
+        ----------
+            data (np.ndarray): Scaled data matrix
+            dataset (pd.DataFrame): DataFrame with metadata
+            meta_cols (list): metadata columns list
+
+        Returns:
+            summary_df: DataFrame with metadata analysis results
+        """
+
+        dataset, n_clusters, metric, save, save_format, _, visualize = self._analysis(
+            self.config, data, dataset
+        )
+
+        assert "response" in dataset.columns, \
+            self.logger.error(f"Response column not found in dataset!"
+                              f"Use drop_response=False in Dataloader")
+
+        contingency, chi2, p = self._compute_contingency(dataset)

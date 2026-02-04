@@ -46,13 +46,13 @@ class Preprocessor:
         self.ordinal_features = self.config.get('ordinal_features', [])
         self.numeric_features = self.config.get('numeric_features', [])
 
-        params_lists = [
-            self.age_order,
-            self.useless_metadata,
-            self.categorical_features,
-            self.ordinal_features,
-            self.numeric_features
-        ]
+        params_lists = {
+            "age_order": self.age_order,
+            "useless_metadata": self.useless_metadata,
+            "categorical_features": self.categorical_features,
+            "ordinal_features": self.ordinal_features,
+            "numeric_features": self.numeric_features
+        }
 
         validate_lists_of_strings(params_lists)
 

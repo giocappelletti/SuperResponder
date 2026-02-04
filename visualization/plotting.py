@@ -78,49 +78,58 @@ class Plotter:
             
 
     def plot_contingencies(self, contingencies, cols, distance_name, visualize=True):
-        """
-        Plots a heatmap for the given contingency table.
-        
-        Parameters
-        ----------
-            contingency_df: DataFrame representing the contingency table.
-            title: Title for the heatmap.
-            visualize: Boolean to show or save the plot.
-        """
         num_contingencies = len(contingencies)
         
-        # Determine grid dimensions: max 4 columns, calculate rows needed
-        ncols = min(num_contingencies, 4)
-        nrows = (num_contingencies + ncols - 1) // ncols # Ceiling division
+        # Max 3 columns is usually better for readability with legends
+        ncols = 3 
+        nrows = (num_contingencies + ncols - 1) // ncols
         
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 5)) # Adjust figsize dynamically
-        fig.canvas.manager.set_window_title(f"Metadata Analysis")
+        # Increased width per column to accommodate legends
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5))
+        fig.canvas.manager.set_window_title(f"Metadata Distribution - {distance_name}")
         
-        # Ensure axes is always an array for consistent iteration
         if num_contingencies == 1:
             axes = [axes]
         else:
-            axes = axes.flatten() # Flatten the 2D array of axes for easy iteration
+            axes = axes.flatten()
             
         for i in range(num_contingencies):
             col = cols[i]
             ax = axes[i]
             contingency_prop = contingencies[i]
-            contingency_prop.plot(kind='bar', stacked=True, ax=ax) 
-            ax.set_title(f"{col} Distribution by Cluster\nDistance: {distance_name}")
+            
+            # Check number of unique categories to decide on legend
+            num_categories = len(contingency_prop.columns)
+            show_legend = num_categories <= 15 # Hide legend if too many items
+            
+            contingency_prop.plot(kind='bar', stacked=True, ax=ax, legend=show_legend) 
+            
+            ax.set_title(f"{col} Distribution\n(Distance: {distance_name})", fontsize=12)
             ax.set_ylabel("Proportion on total")
             ax.set_xlabel("Cluster")
-            ax.legend(title=col, loc='upper left', bbox_to_anchor=(1,1))
+            
+            # Rotate x-axis labels if they are long
+            ax.tick_params(axis='x', rotation=45)
+
+            if show_legend:
+                ax.legend(title=col, loc='upper left', bbox_to_anchor=(1, 1), fontsize='small')
+            else:
+                ax.set_title(f"{col} (Legend hidden - {num_categories} cats)\nDistance: {distance_name}", color='red')
         
-        # Hide any unused subplots if num_contingencies is not a perfect multiple of ncols
+        # Hide unused subplots
         for j in range(num_contingencies, len(axes)):
             fig.delaxes(axes[j])
             
-        plt.tight_layout()
+        # Use rect to prevent subplot titles from hitting the figure top
+        plt.tight_layout(rect=[0, 0, 0.9, 1])
 
-        self._visualize() if visualize else self._save("clustering", "contingencies_distribution",
-                                                        distance_name, bbox_inches='tight')   
+        if visualize:
+            plt.show()
+        else:
+            self._save("clustering", "contingencies_distribution",
+                       distance_name, bbox_inches='tight')   
         plt.close()
 
+        
 # One time initialization of plotter object
 plotter = Plotter()

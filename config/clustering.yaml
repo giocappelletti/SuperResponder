@@ -9,10 +9,10 @@ kmedoids:
   k_values: [2]
   metric: 'braycurtis'
   random_state: 42
-  save: True
+  save: False
   save_format: 'csv'
 
-metadata_analysis:
+analysis:
   n_clusters: 5
   metric: 'euclidean'
   random_state: 42

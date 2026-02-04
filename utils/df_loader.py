@@ -93,6 +93,10 @@ class DataLoader:
                 self.logger.error(f"Failed to load cached dataset from {cache_path}: {e}")
                 raise
             
+            # If an 'index' column exists, set it as the DataFrame index
+            if 'index' in cached_dataset.columns:
+                cached_dataset = cached_dataset.set_index('index')
+            
             return cached_dataset
     
 

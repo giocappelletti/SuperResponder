@@ -17,7 +17,8 @@ if __name__ == "__main__":
 
     dataloader = DataLoader()
 
-    dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
+    dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False)
+
 
     preprocessor = Preprocessor(
         config_path=dataset_config_path,
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     
     #inertia, silhouette = clustering.compute_elbow_silhouette(X_scaled_taxa)
     
-    #cluster_df = clustering.kmedoids(X_scaled_taxa)
+    #cluster_df = clustering.kmedoids(scaled_taxa)
 
     metadata_analysis_df = clustering.metadata_analysis(scaled_taxa, dataset, meta_cols)
     

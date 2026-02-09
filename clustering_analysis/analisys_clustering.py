@@ -7,7 +7,6 @@ from dataTransformers.scaler import Scaler
 from preprocessing.preprocess import Preprocessor
 from utils.df_loader import DataLoader
 from clustering.clustering import Clustering
-from visualization.plotting import Plotter
 
 
 if __name__ == "__main__":
@@ -58,4 +57,4 @@ if __name__ == "__main__":
     #_, _, _ = clustering.response_analysis(data_matrix=distance_matrix_aligned, dataset=dataset_aligned, orig_dataset=orig_dataset)
     #_, _, _ = clustering.response_analysis(data_matrix=scaled_taxa, dataset=dataset, orig_dataset=dataset_path)
     
-    clustering.modenesi_analysis(scaled_modenesi_taxa, scaled_ref_taxa) 
+    #clustering.modenesi_analysis(scaled_modenesi_taxa, scaled_ref_taxa) 

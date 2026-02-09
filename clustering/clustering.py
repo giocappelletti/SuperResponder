@@ -1,9 +1,15 @@
 import yaml
+import warnings
+
 import numpy as np
 import pandas as pd
 
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score
+from sklearn.decomposition import PCA, KernelPCA
+from sklearn.manifold import MDS
+from skbio import DistanceMatrix
+from skbio.stats.ordination import pcoa
 from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.stats import chi2_contingency
 
@@ -11,7 +17,7 @@ from joblib import Parallel, delayed
 
 from logger.logger import logger
 from utils.serialization import serializer
-from utils.utils import validate_config_param_type, validate_list_of_strings
+from utils.utils import validate_cluster_config
 from visualization.plotting import plotter
 from utils.df_loader import DataLoader
 
@@ -46,7 +52,9 @@ class Clustering:
         Fits K-Medoids clustering.
         """
         self.logger.info(f"Fitting K-Medoids with k={n_clusters}, metric={metric}")
-        return KMedoids(n_clusters, metric, random_state=random_state).fit_predict(data)
+        kmedoids = KMedoids(n_clusters, metric, random_state=random_state)
+        labels = kmedoids.fit_predict(data)
+        return kmedoids, labels
 
 
     def _run_single_k(self, n_clusters, data, metric, random_state, silhouette=True):
@@ -59,49 +67,22 @@ class Clustering:
             score = silhouette_score(data, kmedoids.labels_, metric=metric) if n_clusters > 1 else np.nan
             return kmedoids.inertia_, score
         
-        return data[kmedoids.medoid_indices_] # medoid points
+        return kmedoids.medoid_indices_
+    
 
-        
-
-    def _analysis(self, config, data: np.ndarray, dataset: pd.DataFrame, resp_analisys=False):
+    def _analysis(self, data: np.ndarray, dataset: pd.DataFrame, resp_analisys=False):
         """
         Read analysis data from file and computes k medoids.
         """
-        config = self.config.get('analysis', {})
-
-        n_clusters = 2 if resp_analisys else config.get('n_clusters', 5)
-        validate_config_param_type("n_clusters", n_clusters, int)
-        if n_clusters < 1:
-            self.logger.error(f"n_clusters must be a positive integer, got {n_clusters}")
-            raise ValueError()
-
-        metric = config.get('metric', 'euclidean')
-        validate_config_param_type("metric", metric, str)
-        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
-            self.logger.error(
-                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
-            )
-            raise ValueError()
-
-        random_state = config.get('random_state', 42)
-        validate_config_param_type("random_state", random_state, int)
-
-        save = config.get('save', True)
-        validate_config_param_type("save", save, bool)
-
-        save_format = config.get('save_format', 'csv')
-        validate_config_param_type("save_format", save_format, str)
-        if save_format not in ['csv', 'tsv', 'xlsx']:
-            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
-            raise ValueError()
+        params = validate_cluster_config(self.config, 'analysis')
         
-        useless_metadata = config.get('useless_metadata', [])
-        validate_list_of_strings({"useless_metadata": useless_metadata})
-
-        visualize = config.get('visualize', True)
-        validate_config_param_type("visualize", visualize, bool)
-
-        distance = metric 
+        n_clusters = params['n_clusters']
+        distance = params['metric']
+        random_state = params['random_state']
+        save = params['save']
+        save_format = params['save_format']
+        useless_metadata = params['useless_metadata']
+        visualize = params['visualize']
 
         if distance == "braycurtis":
             data = squareform(pdist(data, metric='braycurtis'))
@@ -110,7 +91,7 @@ class Clustering:
         elif distance == 'unifrac':
             metric = 'precomputed'
 
-        labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
+        _, labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
 
         # Add cluster labels to dataset
         dataset = dataset.copy()
@@ -130,42 +111,6 @@ class Clustering:
         return contingency_prop, chi2, p
 
 
-    def _validate_clusters(self, config):
-        """
-        Helper to validate kmedoids params in yaml config file
-        """
-        k_values = config.get('k_values', [2])
-        validate_config_param_type("k_values", k_values, list)
-
-        for k in k_values:
-            validate_config_param_type("k_s", k, int)
-            if k < 1:
-                self.logger.error(f"k must be a positive integer, got {k}")
-                raise ValueError()
-        
-        metric = config.get('metric', 'euclidean')
-        validate_config_param_type("metric", metric, str)
-        if metric not in ['euclidean', 'braycurtis', 'unifrac']:
-            self.logger.error(
-                f"Unsupported distance metric: {metric}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
-            )
-            raise ValueError()
-
-        random_state = config.get('random_state', 42)
-        validate_config_param_type("random_state", random_state, int)
-
-        save = config.get('save', True)
-        validate_config_param_type("save", save, bool)
-
-        save_format = config.get('save_format', 'csv')
-        validate_config_param_type("save_format", save_format, str)
-        if save_format not in ['csv', 'tsv', 'xlsx']:
-            self.logger.error(f"Unsupported save format: {save_format}. Supported formats are 'csv', 'tsv', and 'xlsx'")
-            raise ValueError()
-        
-        return k_values, metric, random_state, save, save_format
-
-
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
         """
         Computes inertia and silhouette scores for a range of k values using K-Medoids.
@@ -181,36 +126,14 @@ class Clustering:
                 - silhouettes: List of mean silhouette scores.
         """
 
-        config = self.config.get('elbow_silhouette', {})
+        params = validate_cluster_config(self.config, 'elbow_silhouette')
+        distance = params['metric']
+        max_clusters = params['n_clusters']
+        njobs = params['njobs']
+        random_state = params['random_state']
+        visualize = params['visualize']
 
-        max_clusters = config.get('max_clusters', 20)
-        validate_config_param_type("max_clusters", max_clusters, int)
-        
-        if max_clusters < 2:
-            self.logger.warning(f"Clustering for less than 2 clusters. Skipping Elbow and Silhouette analysis")
-            return [], []
-
-        distance = config.get('distance', 'euclidean')
-        
-        if distance not in ['euclidean', 'braycurtis', 'unifrac']:
-            self.logger.error(
-                f"Unsupported distance metric: {distance}. Supported metrics are 'euclidean', 'unifrac', 'braycurtis'"
-            )
-            raise ValueError()
-        
         metric = distance if distance == 'euclidean' else 'precomputed'
-
-        njobs = config.get('n_jobs', -1) 
-        validate_config_param_type("n_jobs", njobs, int)
-        if njobs < -1:
-            self.logger.error(f"Njobs must be either -1 or a positive integer, got {njobs}")
-            raise ValueError()
-        
-        random_state = config.get('random_state', 42)        
-        validate_config_param_type("random_state", random_state, int)
-        
-        visualize = config.get('visualize', False)
-        validate_config_param_type("visualize", visualize, bool)
 
         if distance == 'braycurtis':
             data = squareform(pdist(data, metric='braycurtis'))
@@ -227,7 +150,7 @@ class Clustering:
 
         tick_values = np.arange(2, max_clusters + 1, 2)
 
-        self.plotter.plot_elbow_and_silhouette(cluster_range, list(inertias), list(silhouettes),
+        self.plotter._plot_elbow_and_silhouette(cluster_range, list(inertias), list(silhouettes),
                                                 tick_values, distance, visualize)
         return inertias, silhouettes
 
@@ -244,9 +167,12 @@ class Clustering:
             cluster_df: DataFrame with counts of samples per cluster for each k.
         """
 
-        config = self.config.get('kmedoids', {})
-
-        k_values, metric, random_state, save, save_format = self._validate_clusters(config)
+        params = validate_cluster_config(self.config, 'kmedoids')
+        k_values = params['k_values']
+        metric = params['metric']
+        random_state = params['random_state']
+        save = params['save']
+        save_format = params['save_format']
 
         cluster_counts = {}
 
@@ -259,7 +185,7 @@ class Clustering:
             working_metric = 'precomputed'
 
         for n_clusters in k_values:
-            labels = self._k_medoids_fit(working_data, n_clusters, working_metric, random_state)
+            _, labels = self._k_medoids_fit(working_data, n_clusters, working_metric, random_state)
             counts = pd.Series(labels).value_counts().sort_index()
             cluster_counts[n_clusters] = counts
 
@@ -296,9 +222,8 @@ class Clustering:
             summary_df: DataFrame with metadata analysis results
         """
 
-        dataset, n_clusters, metric, save, save_format, useless_metadata, visualize = self._analysis(
-            self.config, data, dataset
-        )
+        dataset, n_clusters, metric, save, save_format, useless_metadata, \
+            visualize = self._analysis(data, dataset)
 
 
         if useless_metadata is None:
@@ -343,7 +268,7 @@ class Clustering:
             contingencies.append(contingency)
             cols.append(col)
 
-        self.plotter.plot_contingencies(contingencies, cols, metric, visualize)
+        self.plotter._plot_contingencies(contingencies, cols, metric, visualize)
 
         summary_df = pd.DataFrame(summary_results)
 
@@ -379,10 +304,11 @@ class Clustering:
             tuple (contingency, chi2, p)
                 """
 
-        dataset, n_clusters, distance, save, save_format, _, visualize = self._analysis(
-            self.config, data_matrix, dataset, resp_analisys=True
-        )
+        dataset, _, distance, save, save_format, _, \
+            visualize = self._analysis(data_matrix, dataset, resp_analisys=True)
         
+        n_clusters = 2
+
         if isinstance(orig_dataset, str):
             orig_dataset = DataLoader().load_dataset(orig_dataset, drop_response=False, sanitize=False)
 
@@ -405,41 +331,157 @@ class Clustering:
         
         self.logger.info(f"Response chi2: {chi2}, p-value: {p}")
 
-        self.plotter.plot_contingencies([contingency], ["response"], distance, visualize)
+        self.plotter._plot_contingencies([contingency], ["response"], distance, visualize)
 
         return contingency, chi2, p
 
 
-    def modenesi_analysis(self, data: np.ndarray, ref_data: np.ndarray):
+    def modenesi_analysis(self, data: np.ndarray, ref_data: np.ndarray, unifrac_dataframe: pd.DataFrame = None,
+                          orig_dataframe: pd.DataFrame = None, modenesi_dataframe: pd.DataFrame = None) -> pd.DataFrame:
 
-        config = self.config.get('modenesi', {})
+        params = validate_cluster_config(self.config, 'modenesi')
+        k_values = params['k_values']
+        metric = params['metric']
+        random_state = params['random_state']
+        save = params['save']
+        save_format = params['save_format']
+        njobs = params['njobs']
+        
+        distance = metric 
 
-        k_values, metric, random_state, save, save_format = self._validate_clusters(config)
+        if distance == "unifrac":
+            assert unifrac_dataframe is not None, \
+                "A Unifrac dataset must be passed to the function if Unifrac distance is used"
+            assert orig_dataframe is not None, \
+                "orig_dataframe must be passed to the function if Unifrac distance is used"
+            assert modenesi_dataframe is not None, \
+                "modenesi_dataframe must be passed to the function if Unifrac distance is used"
 
-        njobs = config.get('n_jobs', -1) 
-        validate_config_param_type("n_jobs", njobs, int)
-        if njobs < -1:
-            self.logger.error(f"Njobs must be either -1 or a positive integer, got {njobs}")
-            raise ValueError()
+        if unifrac_dataframe is not None and distance != "unifrac":
+            self.logger.info("Unifrac Dataset was passed to the function, assuming Unifrac distance type")
+            distance = 'unifrac'
+
+        fitting_data = ref_data
+        
+        if distance == "braycurtis":
+            fitting_data = squareform(pdist(ref_data, metric='braycurtis'))
+            metric = 'precomputed'
+
+        elif distance == 'unifrac':
+            fitting_data = data
+            metric = 'precomputed'
 
         cluster_distributions = {}
 
         self.logger.info(f"Computing medoids for k ={k_values} using metric={metric}")
 
-        medoid_points = Parallel(n_jobs=njobs)(
-            delayed(self._run_single_k)(cluster_idx, ref_data, metric, random_state, silhouette=False) for cluster_idx in k_values
+        medoid_indices = Parallel(n_jobs=njobs)(
+            delayed(self._run_single_k)(cluster_idx, fitting_data, metric, random_state, silhouette=False) 
+            for cluster_idx in k_values
         )
 
         for i, k in enumerate(k_values):
-            dist_to_medoids = cdist(data, medoid_points[i])
+            current_medoid_indices = medoid_indices[i]
+            
+            if distance in ['euclidean', 'braycurtis']:
+                medoid_points = ref_data[current_medoid_indices]
+                dist_to_medoids = cdist(data, medoid_points, metric=distance)
+            
+            else:
+                medoid_samples = orig_dataframe.index[current_medoid_indices].tolist()
+                dist_to_medoids = unifrac_dataframe.loc[modenesi_dataframe.index, medoid_samples].to_numpy()
+
             modenesi_clusters = np.argmin(dist_to_medoids, axis=1)
             cluster_distributions[k] = pd.Series(modenesi_clusters).value_counts().sort_index()
 
-        summary_df = pd.DataFrame(cluster_distributions).fillna(0).astype(int)
+        cluster_df = pd.DataFrame(cluster_distributions).fillna(0).astype(int)
 
-        summary_df.index.name = "cluster_idx"
-        summary_df = summary_df.rename(columns={k: f"k_{k}" for k in summary_df.columns})
+        cluster_df.index.name = "cluster_idx"
+        cluster_df = cluster_df.rename(columns={k: f"k_{k}" for k in cluster_df.columns})
 
-        print(summary_df)
+        if save:
+            self.serializer.save_file(
+                data=cluster_df,
+                subfolder="modenesi",
+                exp_type="modenesi",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=metric
+            )
+        else:
+            self.logger.info(f"Modenesi groups: {cluster_df}")
+
+        return cluster_df
 
 
+    def pca_mds(self, data: np.ndarray, pca_type: str = 'pca'):
+        """
+        Compute PCA with euclidean distance.
+
+        Parameters
+        ----------
+            data (np.ndarray): Data matrix.
+        Returns
+        ----------
+            fitted_pca: PCA object.
+            medoids: List of found medoids.
+        """
+        assert pca_type in ['pca', 'pcoa', 'kpca'], \
+            f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}"
+
+        params = validate_cluster_config(self.config, 'pca_mds')
+        n_components = params['n_components']
+        k_values = params['k_values']
+        metric = params['metric']
+        random_state = params['random_state']
+        visualize = params['visualize']
+        kernel = params['kernel']
+        gamma = params['gamma']
+
+        distance = metric if metric == 'euclidean' else 'precomputed'
+
+        fitted = None
+
+        if distance == "euclidean":
+            if pca_type == 'pca':
+                pca = PCA(n_components=n_components, random_state=random_state)
+                fitted = pca.fit_transform(data)
+            
+            elif pca_type == 'kpca':
+                fitted = KernelPCA(n_components=n_components, kernel=kernel, gamma=gamma).fit_transform(data)
+            
+        else:
+            if metric == 'braycurtis':
+                data = squareform(pdist(data, metric=metric))
+            
+            if pca_type == 'pca':
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    fitted = MDS(n_components=2, metric="precomputed", random_state=42, n_init=4).fit_transform(data)
+            
+            elif pca_type == 'pcoa':
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=RuntimeWarning)
+                    fitted = pcoa(DistanceMatrix(data)).samples.iloc[:, :2].values
+        
+        #TODO better check of possible combinations
+        assert fitted is not None, \
+            "Cannot compute results, check config file for possible problems"
+
+        medoids = []
+        all_labels = []
+
+        for k in k_values:
+            kmedoids, labels = self._k_medoids_fit(data, k, distance, random_state)
+            
+            if distance == 'euclidean' and pca_type == 'pca':
+                medoids.append(pca.transform(data[kmedoids.medoid_indices_]))
+            else:
+                medoids.append(fitted[kmedoids.medoid_indices_])
+                
+            all_labels.append(labels)
+        
+        self.plotter._plot_pca_mds(k_values, fitted, medoids, all_labels, metric, visualize, pca_type)
+        
+        return fitted, medoids
+    

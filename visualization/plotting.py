@@ -1,6 +1,7 @@
 import os
 import time
 import matplotlib.pyplot as plt
+import numpy as np
 
 from logger.logger import logger
 from utils.serialization import Serialization
@@ -43,8 +44,17 @@ class Plotter:
         except:
             self.logger.warning(f"Error saving plot to: {save_path}")
 
+    def _compute_rows_cols(self, num_values):
+        """
+        Computes the number of rows and columns for subplots.
+        """        
+        # Max 3 columns is usually better for readability with legends
+        ncols = max(1, min(3, num_values))
+        nrows = max(1, (num_values + ncols - 1) // ncols)
 
-    def plot_elbow_and_silhouette(self, ks, inertias, silhouettes, tick_values, 
+        return nrows, ncols
+
+    def _plot_elbow_and_silhouette(self, ks, inertias, silhouettes, tick_values, 
                                   metric_name, visualize=True):
         """
         Plots Elbow and Silhouette results with the specific metric name integrated.
@@ -52,8 +62,8 @@ class Plotter:
         Parameters
         ----------
             ks, inertias, silhouettes, tick_values: Data from Clustering class.\n
-            metric_name: String name of the metric.
-            visualize: Boolean to show or save the plot.
+            metric_name (string):  name of the metric.
+            visualize (bool):  wether to show or save the plot.
         """
         fig, axes = plt.subplots(1, 2, figsize=(13, 5))
         
@@ -82,12 +92,15 @@ class Plotter:
         plt.close(fig)
             
 
-    def plot_contingencies(self, contingencies, cols, distance_name, visualize=True):
+    def _plot_contingencies(self, contingencies, cols, distance_name, visualize=True):
+        """
+        Plots computed contingencies.
+        """
+
         num_contingencies = len(contingencies)
         
         # Max 3 columns is usually better for readability with legends
-        ncols = max(1, min(3, num_contingencies))
-        nrows = max(1, (num_contingencies + ncols - 1) // ncols)
+        nrows, ncols = self._compute_rows_cols(num_contingencies)
         
         # Increased width per column to accommodate legends
         # squeeze=False ensures axes is always a 2D array, simplifying flattening
@@ -127,13 +140,45 @@ class Plotter:
         # Use rect to prevent subplot titles from hitting the figure top
         plt.tight_layout(rect=[0, 0, 0.9, 1])
 
-        if visualize:
-            self.logger.info("Displaying plot")
-            plt.show()
-        else:
-            self._save("clustering", "contingencies_distribution",
-                       distance_name, bbox_inches='tight')   
+        self._visualize() if visualize else self._save("clustering", "elbow_silhouette", distance_name, bbox_inches='tight')
+ 
         plt.close()
+
+
+    def _plot_pca_mds(self, k_values, fitted, medoids, labels, metric, visualize, pca_type):
+        """
+        Generates 2D graphs for Euclidean PCA or Unifac/Bray-Curtis MDS.
+        """
+        num_values = len(k_values)
+
+        nrows, ncols = self._compute_rows_cols(num_values)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5), squeeze=False)
+        fig.canvas.manager.set_window_title(f"PCA - {metric} distance")
+      
+        axes = axes.flatten()
+
+        for i, k in enumerate(k_values):
+            ax = axes[i]
+
+            current_labels = labels[i] if isinstance(labels, (list, tuple)) else labels
+
+            scatter = ax.scatter(fitted[:, 0], fitted[:, 1], c=current_labels, cmap="tab10", alpha=0.7)
+            ax.scatter(medoids[i][:, 0], medoids[i][:, 1], color="black", marker="X", s=150, label="Medoids")
+            
+            ax.set_title(f"Cluster {pca_type.capitalize()} 2D — {metric} — k={k}")
+            ax.set_xlabel("PC1")
+            ax.set_ylabel("PC2")
+            ax.legend(*scatter.legend_elements(), title="Cluster")
+        
+        for j in range(num_values, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
+
+        self._visualize() if visualize else self._save("clustering", f"{pca_type}", f"{metric}")
+        plt.close(fig)
+        
 
         
 # One time initialization of plotter object

@@ -38,7 +38,7 @@ class DataLoader:
         dataset = df.copy()
 
         
-        self._set_index_to_samples(dataset)
+        dataset = self._set_index_to_samples(dataset)
         
 
         if 'response' in dataset.columns and drop_response:
@@ -56,7 +56,6 @@ class DataLoader:
         """
         Clean unifrac datasets and intersect with original dataset.
         """
-
         df.index = df.index.str.strip()
         df.columns = df.columns.str.strip()
 
@@ -170,11 +169,7 @@ class DataLoader:
 
         if os.path.exists(cache_path):            
             dataset = self._load_cached_dataset(cache_path)
-
-            if unifrac:
-                assert orig_dataset_path is not None, "orig_dataset_path must be provided if unifrac=True"
-                return self._load_unifrac(dataset, orig_dataset_path)
-
+            
             if sanitize:
                 return self._sanitize_raw_data(dataset, drop_response) 
             else:
@@ -184,6 +179,7 @@ class DataLoader:
             self.logger.info(f"Cache not found. Loading {extension} file from {path} (this may take a while)")
         else:
             self.logger.info(f"Loading unifrac file from {path}")
+            index_col = 0
 
         inferred_separator = self._infer_csv_separator(path) if extension == 'csv' else '\t'
 

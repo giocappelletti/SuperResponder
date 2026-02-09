@@ -1,6 +1,6 @@
 elbow_silhouette:
-  max_clusters: 20
-  distance: 'braycurtis'
+  n_clusters: 20
+  metric: 'braycurtis'
   njobs: -1
   random_state: 42
   visualize: True
@@ -14,15 +14,24 @@ kmedoids:
 
 modenesi:
   k_values: [2]
-  metric: 'euclidean'
+  metric: 'braycurtis'
   random_state: 42
   save: False
   save_format: 'csv'
   njobs: -1
 
+pca_mds:
+  n_components: 2
+  k_values: [2]
+  metric: 'euclidean'
+  random_state: 42
+  visualize: True
+  kernel: 'rbf'
+  gamma: null
+
 analysis:
   n_clusters: 5
-  metric: 'braycurtis'
+  metric: 'unifrac'
   random_state: 42
   save: False
   save_format: 'csv'

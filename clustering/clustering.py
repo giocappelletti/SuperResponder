@@ -1,3 +1,4 @@
+from typing import Literal
 import yaml
 import warnings
 
@@ -5,9 +6,10 @@ import numpy as np
 import pandas as pd
 
 from sklearn_extra.cluster import KMedoids
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, adjusted_rand_score, fowlkes_mallows_score
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.manifold import MDS
+from sklearn.model_selection import ShuffleSplit
 from skbio import DistanceMatrix
 from skbio.stats.ordination import pcoa
 from scipy.spatial.distance import cdist, pdist, squareform
@@ -57,7 +59,7 @@ class Clustering:
         return kmedoids, labels
 
 
-    def _run_single_k(self, n_clusters, data, metric, random_state, silhouette=True):
+    def _run_single_k(self, n_clusters, data, metric, random_state, silhouette=False):
         """
         Runs K-Medoids for a single k value.
         """
@@ -77,21 +79,20 @@ class Clustering:
         params = validate_cluster_config(self.config, 'analysis')
         
         n_clusters = params['n_clusters']
-        distance = params['metric']
+        metric = params['metric']
         random_state = params['random_state']
         save = params['save']
         save_format = params['save_format']
         useless_metadata = params['useless_metadata']
         visualize = params['visualize']
 
-        if distance == "braycurtis":
+        distance = metric if metric == 'euclidean' else 'precomputed'
+
+        if metric == "braycurtis":
             data = squareform(pdist(data, metric='braycurtis'))
-            metric = 'precomputed'
 
-        elif distance == 'unifrac':
-            metric = 'precomputed'
 
-        _, labels = self._k_medoids_fit(data, n_clusters, metric, random_state)
+        _, labels = self._k_medoids_fit(data, n_clusters, distance, random_state)
 
         # Add cluster labels to dataset
         dataset = dataset.copy()
@@ -132,6 +133,8 @@ class Clustering:
         njobs = params['njobs']
         random_state = params['random_state']
         visualize = params['visualize']
+        save = params['save']
+
 
         metric = distance if distance == 'euclidean' else 'precomputed'
 
@@ -143,7 +146,7 @@ class Clustering:
         cluster_range = range(1, max_clusters + 1)
 
         results = Parallel(n_jobs=njobs)(
-            delayed(self._run_single_k)(cluster_idx, data, metric, random_state) for cluster_idx in cluster_range
+            delayed(self._run_single_k)(cluster_idx, data, metric, random_state, silhouette=True) for cluster_idx in cluster_range
         )
 
         inertias, silhouettes = zip(*results)
@@ -151,7 +154,7 @@ class Clustering:
         tick_values = np.arange(2, max_clusters + 1, 2)
 
         self.plotter._plot_elbow_and_silhouette(cluster_range, list(inertias), list(silhouettes),
-                                                tick_values, distance, visualize)
+                                                tick_values, distance, visualize, save)
         return inertias, silhouettes
 
 
@@ -268,7 +271,7 @@ class Clustering:
             contingencies.append(contingency)
             cols.append(col)
 
-        self.plotter._plot_contingencies(contingencies, cols, metric, visualize)
+        self.plotter._plot_contingencies(contingencies, cols, metric, visualize, save)
 
         summary_df = pd.DataFrame(summary_results)
 
@@ -288,7 +291,7 @@ class Clustering:
 
     def response_analysis(self, 
                           data_matrix: np.ndarray,
-                          dataset: pd.DataFrame, 
+                          dataset: str | pd.DataFrame, 
                           orig_dataset: str | pd.DataFrame) -> tuple[pd.DataFrame, float, float]:
         """
         Performs k-medoids clustering and analyzes "response" label associated with clusters.
@@ -304,13 +307,16 @@ class Clustering:
             tuple (contingency, chi2, p)
                 """
 
+        if isinstance(orig_dataset, str):
+            orig_dataset = DataLoader().load_dataset(orig_dataset, drop_response=False, sanitize=False)
+
+        if isinstance(dataset, str):
+            dataset = DataLoader().load_dataset(dataset, drop_response=False, sanitize=False, index_col=0)
+
         dataset, _, distance, save, save_format, _, \
             visualize = self._analysis(data_matrix, dataset, resp_analisys=True)
         
         n_clusters = 2
-
-        if isinstance(orig_dataset, str):
-            orig_dataset = DataLoader().load_dataset(orig_dataset, drop_response=False, sanitize=False)
 
         assert "response" in orig_dataset.columns, \
             "Response column not found in raw dataset!"
@@ -331,7 +337,7 @@ class Clustering:
         
         self.logger.info(f"Response chi2: {chi2}, p-value: {p}")
 
-        self.plotter._plot_contingencies([contingency], ["response"], distance, visualize)
+        self.plotter._plot_contingencies([contingency], ["response"], distance, visualize, save)
 
         return contingency, chi2, p
 
@@ -376,7 +382,7 @@ class Clustering:
         self.logger.info(f"Computing medoids for k ={k_values} using metric={metric}")
 
         medoid_indices = Parallel(n_jobs=njobs)(
-            delayed(self._run_single_k)(cluster_idx, fitting_data, metric, random_state, silhouette=False) 
+            delayed(self._run_single_k)(cluster_idx, fitting_data, metric, random_state) 
             for cluster_idx in k_values
         )
 
@@ -414,13 +420,14 @@ class Clustering:
         return cluster_df
 
 
-    def pca_mds(self, data: np.ndarray, pca_type: str = 'pca'):
+    def pca_mds(self, data: np.ndarray, pca_type: Literal['pca', 'pcoa', 'kpca']):
         """
         Compute PCA with euclidean distance.
 
         Parameters
         ----------
             data (np.ndarray): Data matrix.
+            pca_type (str): Type of PCA to use.
         Returns
         ----------
             fitted_pca: PCA object.
@@ -430,11 +437,13 @@ class Clustering:
             f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}"
 
         params = validate_cluster_config(self.config, 'pca_mds')
+        
         n_components = params['n_components']
         k_values = params['k_values']
         metric = params['metric']
         random_state = params['random_state']
         visualize = params['visualize']
+        save = params['save']
         kernel = params['kernel']
         gamma = params['gamma']
 
@@ -443,6 +452,9 @@ class Clustering:
         fitted = None
 
         if distance == "euclidean":
+            assert pca_type in ['pca', 'pcoa'], \
+                f"pca_type must be either 'pca' or 'pcoa', got {pca_type}"
+
             if pca_type == 'pca':
                 pca = PCA(n_components=n_components, random_state=random_state)
                 fitted = pca.fit_transform(data)
@@ -450,6 +462,10 @@ class Clustering:
             elif pca_type == 'kpca':
                 fitted = KernelPCA(n_components=n_components, kernel=kernel, gamma=gamma).fit_transform(data)
             
+            else:
+                self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'kpca', got {pca_type}")
+
+
         else:
             if metric == 'braycurtis':
                 data = squareform(pdist(data, metric=metric))
@@ -457,16 +473,20 @@ class Clustering:
             if pca_type == 'pca':
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=FutureWarning)
-                    fitted = MDS(n_components=2, metric="precomputed", random_state=42, n_init=4).fit_transform(data)
+                    fitted = MDS(n_components=n_components, metric="precomputed", random_state=42, n_init=4).fit_transform(data)
             
             elif pca_type == 'pcoa':
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=RuntimeWarning)
-                    fitted = pcoa(DistanceMatrix(data)).samples.iloc[:, :2].values
-        
-        #TODO better check of possible combinations
+                    fitted = pcoa(DistanceMatrix(data)).samples.iloc[:, :n_components].values
+
+            else:
+                self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'pcoa', got {pca_type}")
+
+
         assert fitted is not None, \
-            "Cannot compute results, check config file for possible problems"
+            f"Cannot compute results, check config file for possible problems.\n \
+            Using distance {distance} with pca_type {pca_type}"            
 
         medoids = []
         all_labels = []
@@ -476,12 +496,130 @@ class Clustering:
             
             if distance == 'euclidean' and pca_type == 'pca':
                 medoids.append(pca.transform(data[kmedoids.medoid_indices_]))
+            
             else:
                 medoids.append(fitted[kmedoids.medoid_indices_])
                 
             all_labels.append(labels)
         
-        self.plotter._plot_pca_mds(k_values, fitted, medoids, all_labels, metric, visualize, pca_type)
+        self.plotter._plot_pca_mds(k_values, fitted, medoids, all_labels, metric, visualize, pca_type, n_components, save)
         
         return fitted, medoids
     
+
+    def cluster_stability_ari_fm(self, data: np.ndarray):
+        """
+        Performs k-medoids on n_splits folds and calculates cluster stability with ARI and Fowlkes-Mallows.
+
+        Generates separate heatmaps for ARI and FM.
+
+        Params
+        ----------
+            data: data array or distance matrix (if metric='precomputed')
+            k: number of clusters
+            n_splits: number of folds
+            test_size: size of the test fold
+            metric: 'Euclidean' or 'precomputed'
+            output_dir: output base directory
+            distance_name: name of the distance
+        Returns
+        ----------
+            None    
+        """
+
+        params = validate_cluster_config(self.config, 'stability_ari')
+
+        n_clusters = params['n_clusters']
+        metric = params['metric']
+        n_splits = params['n_splits']
+        test_size = params['test_size']
+        random_state = params['random_state']
+        save = params['save']
+        save_format = params['save_format']
+        visualize = params['visualize']
+
+        distance = metric if metric == 'euclidean' else 'precomputed'
+
+        if metric == 'braycurtis':
+            data = squareform(pdist(data, metric='braycurtis'))
+
+        n_samples = data.shape[0]
+
+        splitter = ShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
+        all_labels = []
+
+        for fold, (train_idx, _) in enumerate(splitter.split(data)):
+            
+            train_data = data[train_idx] if distance == 'euclidean' else data[np.ix_(train_idx, train_idx)]
+
+            indices = self._run_single_k(n_clusters, train_data, distance, random_state=fold)
+
+            if distance == 'euclidean':
+                medoids = train_data[indices]
+                labels_complete = [np.argmin(np.linalg.norm(medoids - data[i], axis=1)) for i in range(n_samples)]
+
+            elif distance == 'precomputed':
+                labels_complete = [np.argmin(data[i, train_idx][indices]) for i in range(n_samples)]
+            
+            all_labels.append(np.array(labels_complete))
+
+        ari_results = []
+        fm_results = []
+
+        for i in range(n_splits):
+            for j in range(i+1, n_splits):
+                ari = adjusted_rand_score(all_labels[i], all_labels[j])
+                fm = fowlkes_mallows_score(all_labels[i], all_labels[j])
+                ari_results.append((i, j, ari))
+                fm_results.append((i, j, fm))
+
+        ari_matrix = np.zeros((n_splits, n_splits))
+        fm_matrix = np.zeros((n_splits, n_splits))
+
+        for i in range(n_splits):
+            for j in range(n_splits):
+                ari_matrix[i, j] = adjusted_rand_score(all_labels[i], all_labels[j])
+                fm_matrix[i, j] = fowlkes_mallows_score(all_labels[i], all_labels[j])
+
+        ari_results = pd.DataFrame(ari_results, columns=["Fold_1", "Fold_2", "ARI"])
+        fm_results = pd.DataFrame(fm_results, columns=["Fold_1", "Fold_2", "FM"])
+        ari_matrix = pd.DataFrame(ari_matrix)
+        fm_matrix = pd.DataFrame(fm_matrix)
+
+        plotter._plot_stability_ari([(ari_matrix, "ARI"), (fm_matrix, "Fowlkes-Mallows")], metric, n_clusters, visualize)
+
+        if save:
+            self.serializer.save_file(
+                data=ari_results,
+                subfolder="stability",
+                exp_type="ari_pairwise",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=metric
+            )
+            self.serializer.save_file(
+                data=fm_results,
+                subfolder="stability",
+                exp_type="fm_pairwise",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=metric
+            )
+            self.serializer.save_file(
+                data=ari_matrix,
+                subfolder="stability",
+                exp_type="ari_matrix",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=metric
+            )
+            self.serializer.save_file(
+                data=fm_matrix,
+                subfolder="stability",
+                exp_type="fm_matrix",
+                exp_group="clustering",
+                save_format=save_format,
+                distance_type=metric
+            )
+
+        return ari_results, fm_results, ari_matrix, fm_matrix

@@ -50,10 +50,9 @@ def validate_list_of_strings(list_of_strings: list):
     """
     Validates a list of strings.
     """
-    for k, v in list_of_strings.items():
-        if validate_config_param_type(k, v, list):
-            for s in list_of_strings:
-                validate_config_param_type("string", s, str)
+    if validate_config_param_type("list_of_strings", list_of_strings, list):
+        for s in list_of_strings:
+            validate_config_param_type("string", s, str)
 
 
 def validate_cluster_config(config, section):
@@ -171,18 +170,31 @@ def validate_cluster_config(config: dict, section: str) -> dict:
     if "n_components" in needed:
         params["n_components"] = s_config.get('n_components', 2)
         validate_config_param_type("n_components", params["n_components"], int)
-        assert params["n_components"] > 0, "n_components must be > 0"
+        assert params["n_components"] in [2, 3], "n_components must be 2 or 3"
 
     if "useless_metadata" in needed:
         params["useless_metadata"] = s_config.get('useless_metadata', [])
-        validate_list_of_strings("useless_metadata", params["useless_metadata"])
+        validate_list_of_strings(params["useless_metadata"])
 
     if "kernel" in needed:
         params["kernel"] = s_config.get('kernel', 'rbf')
         validate_config_param_type("kernel", params["kernel"], str)
+        assert params["kernel"] in ['linear', 'poly', 'rbf', 'sigmoid', 'cosine'], \
+            f"Unsupported kernel: {params['kernel']}"
     
     if "gamma" in needed:
         params["gamma"] = s_config.get('gamma', 'scale')
         validate_config_param_type("gamma", params["gamma"], str)
+    
+    if "n_splits" in needed:
+        params["n_splits"] = s_config.get('n_splits', 10)
+        validate_config_param_type("n_splits", params["n_splits"], int)
+        assert params["n_splits"] > 1, "n_splits must be > 1"
+    
+    if "test_size" in needed:
+        params["test_size"] = s_config.get('test_size', 0.2)
+        validate_config_param_type("test_size", params["test_size"], float)
+        assert params["test_size"] > 0 and params["test_size"] < 1, \
+            "test_size must be between 0 and 1"
 
     return params

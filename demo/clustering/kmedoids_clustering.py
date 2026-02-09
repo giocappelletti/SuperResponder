@@ -1,5 +1,12 @@
-import yaml
-import pandas as pd
+import sys
+import os
+
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir, os.pardir))
+
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from sklearn.preprocessing import StandardScaler
 
 from dataTransformers.data_transformers import CLRTransformer
@@ -7,30 +14,37 @@ from dataTransformers.scaler import Scaler
 from preprocessing.preprocess import Preprocessor
 from utils.df_loader import DataLoader
 from clustering.clustering import Clustering
-from visualization.plotting import Plotter
 
 
 if __name__ == "__main__":
 
-    dataset_path = './datasets/raw_dataset.csv'
-    dataset_config_path = './config/dataset.yaml'
+    # Define paths
+    dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
+    dataset_config_path = os.path.join(project_root, 'config', 'dataset.yaml')
+    clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml')
 
+    # Instance dataloader
     dataloader = DataLoader()
 
+    # Load dataset
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 
+    # Instance preprocessor
     preprocessor = Preprocessor(
         config_path=dataset_config_path,
         transformation=CLRTransformer,
         scaler=StandardScaler
     )
 
+    # Run preprocessor
     X_taxa, _ = preprocessor.initialize(
         complete_df=dataset,
         use_metadata=False,
         taxa_cols=taxa_cols
     )
-        
+    
+    # Scale data
     scaled_taxa = Scaler().fit_transform(X_taxa)
 
-    cluster_df = Clustering().kmedoids(scaled_taxa)
+    # Run clustering
+    cluster_df = Clustering(clustering_config_path).kmedoids(scaled_taxa)

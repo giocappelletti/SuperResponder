@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from dataTransformers.data_transformers import CLRTransformer
 from dataTransformers.scaler import Scaler
 from preprocessing.preprocess import Preprocessor
-from utils.df_loader import DataLoader
+from fileio.df_loader import DataLoader
 from clustering.clustering import Clustering
 
 
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     modenesi_dataset_path = os.path.join(project_root, 'datasets', 'splitted', 'Full', 'modenesi.csv')
     unifrac_dataset_path = os.path.join(project_root, 'datasets', 'unifrac', 'dm_588_bacteria_w_unifrac.tsv')
-    dataset_config_path = os.path.join(project_root, 'config', 'dataset.yaml')
+    dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
     clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml')
 
     # Instance dataloader

@@ -1,0 +1,29 @@
+split:
+  save: True
+  save_format: 'csv'
+  path: 'datasets/split/'
+  test_size: 0.2
+  random_state: 42
+  shuffle: True
+  stratify: 'response'
+
+type_split:
+  save: True
+  save_format: 'csv'
+  path: 'datasets/split/'
+  column_types:
+    cancer:
+      - 'MM'
+      - 'NSCLC'
+      - 'RCC'
+
+collapse:
+  save: True
+  save_format: 'csv'
+  path: 'datasets/split/'
+  sort_by: 'response'
+  column_types:
+    ORR: 
+      - 'SD'
+    country: 
+      - 'Italy'

@@ -7,7 +7,8 @@ from sklearn.compose import ColumnTransformer
 
 from dataTransformers.data_transformers import CLRTransformer
 from logger.logger import logger
-from utils.utils import format_pipeline, validate_lists_of_strings
+from utils.utils import format_pipeline
+from utils.validators import validate_config
 
 class Preprocessor:
     """
@@ -21,7 +22,7 @@ class Preprocessor:
         scaler (class): Scikit-learn scaler class (e.g., StandardScaler).
     """
 
-    def __init__(self, config_path="config/dataset.yaml", transformation=CLRTransformer, scaler=StandardScaler):
+    def __init__(self, config_path="config/features.yaml", transformation=CLRTransformer, scaler=StandardScaler):
 
         self.logger = logger
 
@@ -40,29 +41,20 @@ class Preprocessor:
         with open(self.config_path, "r") as f:
             self.config = yaml.safe_load(f)
         
-        self.age_order = self.config.get('age_order', [])
-        self.useless_metadata = self.config.get('useless_metadata', [])
-        self.categorical_features = self.config.get('categorical_features', [])
-        self.ordinal_features = self.config.get('ordinal_features', [])
-        self.numeric_features = self.config.get('numeric_features', [])
-
-        params_lists = {
-            "age_order": self.age_order,
-            "useless_metadata": self.useless_metadata,
-            "categorical_features": self.categorical_features,
-            "ordinal_features": self.ordinal_features,
-            "numeric_features": self.numeric_features
-        }
-
-        validate_lists_of_strings(params_lists)
+        params = validate_config(self.config, "features")
+        self.useless_metadata = params['useless_metadata']
+        self.categorical_features = params['categorical_features']
+        self.ordinal_features = params['ordinal_features']
+        self.numeric_features = params['numeric_features']
+        self.age_order = params['age_order']
 
         self.logger.info(
-            f"Loaded features from config: \n"
-            f"  - Age Order: {', '.join(s for s in self.age_order) if self.age_order else 'None'} \n"
+            f"Loaded features from config file {self.config_path}: \n"
             f"  - Useless Metadata: {', '.join(self.useless_metadata) if self.useless_metadata else 'None'} \n"
             f"  - Categorical Features: {', '.join(self.categorical_features) if self.categorical_features else 'None'} \n"
             f"  - Ordinal Features: {', '.join(self.ordinal_features) if self.ordinal_features else 'None'} \n"
-            f"  - Numeric Features: {', '.join(self.numeric_features) if self.numeric_features else 'None'}"
+            f"  - Numeric Features: {', '.join(self.numeric_features) if self.numeric_features else 'None'} \n"
+            f"  - Age Order: {', '.join(self.age_order) if self.age_order else 'None'} \n"
         )
 
 

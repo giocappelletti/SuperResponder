@@ -1,6 +1,7 @@
 from sklearn.base import BaseEstimator, TransformerMixin
 from skbio.stats.composition import clr, multi_replace
 
+
 class CLRTransformer(BaseEstimator, TransformerMixin):
     """
     Centered Log-Ratio (CLR) Transformer with optional pseudo-count handling.

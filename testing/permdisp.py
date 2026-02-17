@@ -5,7 +5,7 @@ from skbio.stats.distance import permanova, permdisp
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from utils.df_loader import DataLoader
+from fileio.df_loader import DataLoader
 
 def main():
 

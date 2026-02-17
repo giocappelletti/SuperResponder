@@ -18,10 +18,10 @@ from scipy.stats import chi2_contingency
 from joblib import Parallel, delayed
 
 from logger.logger import logger
-from utils.serialization import serializer
-from utils.utils import validate_cluster_config
+from fileio.serialization import serializer
+from utils.validators import validate_config
 from visualization.plotting import plotter
-from utils.df_loader import DataLoader
+from fileio.df_loader import DataLoader
 
 
 class Clustering:
@@ -76,7 +76,7 @@ class Clustering:
         """
         Read analysis data from file and computes k medoids.
         """
-        params = validate_cluster_config(self.config, 'analysis')
+        params = validate_config(self.config, 'analysis')
         
         n_clusters = params['n_clusters']
         metric = params['metric']
@@ -127,7 +127,7 @@ class Clustering:
                 - silhouettes: List of mean silhouette scores.
         """
 
-        params = validate_cluster_config(self.config, 'elbow_silhouette')
+        params = validate_config(self.config, 'elbow_silhouette')
         distance = params['metric']
         max_clusters = params['n_clusters']
         njobs = params['njobs']
@@ -170,7 +170,7 @@ class Clustering:
             cluster_df: DataFrame with counts of samples per cluster for each k.
         """
 
-        params = validate_cluster_config(self.config, 'kmedoids')
+        params = validate_config(self.config, 'kmedoids')
         k_values = params['k_values']
         metric = params['metric']
         random_state = params['random_state']
@@ -345,7 +345,7 @@ class Clustering:
     def modenesi_analysis(self, data: np.ndarray, ref_data: np.ndarray, unifrac_dataframe: pd.DataFrame = None,
                           orig_dataframe: pd.DataFrame = None, modenesi_dataframe: pd.DataFrame = None) -> pd.DataFrame:
 
-        params = validate_cluster_config(self.config, 'modenesi')
+        params = validate_config(self.config, 'modenesi')
         k_values = params['k_values']
         metric = params['metric']
         random_state = params['random_state']
@@ -436,7 +436,7 @@ class Clustering:
         assert pca_type in ['pca', 'pcoa', 'kpca'], \
             f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}"
 
-        params = validate_cluster_config(self.config, 'pca_mds')
+        params = validate_config(self.config, 'pca_mds')
         
         n_components = params['n_components']
         k_values = params['k_values']
@@ -527,7 +527,7 @@ class Clustering:
             None    
         """
 
-        params = validate_cluster_config(self.config, 'stability_ari')
+        params = validate_config(self.config, 'stability_ari')
 
         n_clusters = params['n_clusters']
         metric = params['metric']

@@ -3,6 +3,7 @@ from sklearn.preprocessing import StandardScaler
 from dataTransformers.data_transformers import CLRTransformer
 from logger.logger import logger
 
+
 class Scaler:
     """
     Scales the data using the specified transformer and scaler.

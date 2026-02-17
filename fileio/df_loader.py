@@ -12,7 +12,8 @@ class DataLoader:
     
     Parameters
     ----------
-        cache_dir (str): Path for storing cached datasets.
+        cache_dir: str
+            Path for storing cached datasets.
     """
 
     def __init__(self, cache_dir=".cached_datasets"):
@@ -28,31 +29,9 @@ class DataLoader:
             dataset = dataset.set_index('samples')
         
         return dataset
-
-
-
-    def _sanitize_raw_data(self, df: pd.DataFrame, drop_response=True):
-        """
-        Performs basic data sanitization (type conversion and indexing) based on the dataset type.
-        """
-        dataset = df.copy()
-
-        
-        dataset = self._set_index_to_samples(dataset)
-        
-
-        if 'response' in dataset.columns and drop_response:
-            dataset = dataset.drop(columns=['response'])
-
-        taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
-        meta_cols = [col for col in dataset.columns if col not in taxa_cols]
-
-        dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors='coerce')
-
-        return dataset, taxa_cols, meta_cols
             
 
-    def _load_unifrac(self, df: pd.DataFrame, orig_dataset_path: str):
+    def _load_unifrac(self, df: pd.DataFrame, orig_dataset_path: str, set_index = True):
         """
         Clean unifrac datasets and intersect with original dataset.
         """
@@ -61,7 +40,8 @@ class DataLoader:
 
         orig_dataset = self.load_dataset(orig_dataset_path, drop_response=False, sanitize=False)
 
-        orig_dataset = self._set_index_to_samples(orig_dataset)
+        if set_index:
+            orig_dataset = self._set_index_to_samples(orig_dataset)
 
         common_samples = orig_dataset.index.intersection(df.index)
         
@@ -120,24 +100,53 @@ class DataLoader:
             self.logger.warning(f"Could not sniff CSV delimiter for {os.path.basename(path)}. Defaulting to comma.")
             return ','
    
+   
+    def sanitize_raw_data(self, df: pd.DataFrame, drop_response = True, set_index = True):
+        """
+        Performs basic data sanitization (type conversion and indexing) based on the dataset type.
+        """
+        dataset = df.copy()
+
+        if set_index:
+            dataset = self._set_index_to_samples(dataset)        
+
+        if 'response' in dataset.columns and drop_response:
+            dataset = dataset.drop(columns=['response'])
+
+        taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
+        meta_cols = [col for col in dataset.columns if col not in taxa_cols]
+
+        dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors='coerce')
+
+        return dataset, taxa_cols, meta_cols
     
+
     def load_dataset(self, 
                      path: str,
                      drop_response=True,
                      sanitize=True, 
                      unifrac=False, 
                      orig_dataset_path : str = None,
-                     index_col=None) -> tuple[pd.DataFrame, list, list] | tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+                     index_col=None,
+                     set_index=True) -> tuple[pd.DataFrame, list, list] | tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
         """
         Loads dataset using a Feather cached version if available. 
         Otherwise loads file, sanitizes it, and saves a cache for next time.
         
         Parameters
         ----------
-            path (str): Path to the dataset file
-            drop_response (bool, default=True): Whether to drop the 'response' column if present
-            unifrac (bool, default=False): Whether the dataset is a Unifrac distance matrix
-            sanitize (bool, default=True): Whether to sanitize the raw data after loading.
+            path: str 
+                Path to the dataset file
+            drop_response: bool , default=True
+                Whether to drop the 'response' column if present
+            unifrac: bool, default=False 
+                Whether the dataset is a Unifrac distance matrix
+            sanitize: bool, default=True 
+                Whether to sanitize the raw data after loading.
+            index_col: int
+                Wether to set index column.
+            set_index: bool
+                Wether to set index to 'samples'
 
         Returns
         -------
@@ -171,7 +180,7 @@ class DataLoader:
             dataset = self._load_cached_dataset(cache_path)
             
             if sanitize:
-                return self._sanitize_raw_data(dataset, drop_response) 
+                return self.sanitize_raw_data(dataset, drop_response, set_index) 
             else:
                 return dataset
         
@@ -203,10 +212,10 @@ class DataLoader:
         
         if unifrac:
             assert orig_dataset_path is not None, "orig_dataset_path must be provided if unifrac=True"
-            return self._load_unifrac(dataset, orig_dataset_path)
+            return self._load_unifrac(dataset, orig_dataset_path, set_index)
 
         if sanitize:
-            return self._sanitize_raw_data(dataset, drop_response)
+            return self.sanitize_raw_data(dataset, drop_response, set_index)
         else:
             return dataset
         

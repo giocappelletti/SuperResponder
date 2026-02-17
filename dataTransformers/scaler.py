@@ -1,4 +1,5 @@
 from sklearn.preprocessing import StandardScaler
+import pandas as pd
 
 from dataTransformers.data_transformers import CLRTransformer
 from logger.logger import logger
@@ -20,10 +21,11 @@ class Scaler:
         self.transformer = transformer()
         self.logger.info(f"Scaler: Using transformation {self.transformer}")
         
-        self.scaler = scaler()
+        self.scaler = scaler(with_mean=False, with_std=False)
         self.logger.info(f"Scaler: Using scaler {self.scaler}")
     
-    def fit_transform(self, data):
+
+    def fit_transform(self, data: pd.DataFrame):
         """
         Scales the data using the specified transformer and scaler.
         
@@ -35,9 +37,15 @@ class Scaler:
         -------
             scaled_data (pd.DataFrame): Scaled data
         """
-        clr_data = self.transformer.fit_transform(data)
-        return self.scaler.fit_transform(clr_data)
+        transf_data = self.transformer.fit_transform(data)
+        return self.scaler.fit_transform(transf_data)
+
 
     def transform(self, data):
-        clr_data = self.transformer.transform(data)
-        return self.scaler.transform(clr_data)
+        transf_data = self.transformer.transform(data)
+        return self.scaler.transform(transf_data)
+    
+
+    def transform_then_fit_transform(self, data):
+        transf_data = self.transformer.transform(data)
+        return self.scaler.fit_transform(transf_data)

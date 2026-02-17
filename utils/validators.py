@@ -96,7 +96,7 @@ def validate_config(config: dict, section: str) -> dict:
     
     if "gamma" in needed:
         params["gamma"] = s_config.get('gamma', 'scale')
-        validate_config_param_type("gamma", params["gamma"], str)
+        validate_config_param_type("gamma", params["gamma"], float)
     
     if "n_splits" in needed:
         params["n_splits"] = s_config.get('n_splits', 10)
@@ -148,6 +148,21 @@ def validate_config(config: dict, section: str) -> dict:
     if "age_order" in needed:
         params["age_order"] = s_config.get('age_order', [])
         validate_dict_of_strings({"age_order": params["age_order"]})
+
+    if "max_iter" in needed:
+        params["max_iter"] = s_config.get('max_iter', 1000)
+        validate_config_param_type("max_iter", params["max_iter"], int)
+        assert params["max_iter"] > 0, "max_iter must be > 0"
+
+    if "perplexity" in needed:
+        params["perplexity"] = s_config.get('perplexity', 30)
+        validate_config_param_type("perplexity", params["perplexity"], int)
+        assert params["perplexity"] > 0, "perplexity must be > 0"
+
+    if "learning_rate" in needed:
+        params["learning_rate"] = s_config.get('learning_rate', 'auto')
+        validate_config_param_type("learning_rate", params["learning_rate"], int)
+        assert params["learning_rate"] > 0, "learning_rate must be > 0"
 
 
     return params

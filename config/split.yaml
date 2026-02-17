@@ -1,5 +1,5 @@
 split:
-  save: True
+  save: False
   save_format: 'csv'
   path: 'datasets/split/'
   test_size: 0.2

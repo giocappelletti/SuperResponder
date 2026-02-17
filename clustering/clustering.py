@@ -7,7 +7,6 @@ import pandas as pd
 
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score, adjusted_rand_score, fowlkes_mallows_score
-from sklearn.decomposition import PCA, KernelPCA
 from sklearn.manifold import MDS
 from sklearn.model_selection import ShuffleSplit
 from skbio import DistanceMatrix
@@ -22,6 +21,8 @@ from fileio.serialization import serializer
 from utils.validators import validate_config
 from visualization.plotting import plotter
 from fileio.df_loader import DataLoader
+from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
+
 
 
 class Clustering:
@@ -444,23 +445,22 @@ class Clustering:
         random_state = params['random_state']
         visualize = params['visualize']
         save = params['save']
-        kernel = params['kernel']
-        gamma = params['gamma']
 
         distance = metric if metric == 'euclidean' else 'precomputed'
 
         fitted = None
+
+        dr = DimensionalityReduction()
 
         if distance == "euclidean":
             assert pca_type in ['pca', 'pcoa'], \
                 f"pca_type must be either 'pca' or 'pcoa', got {pca_type}"
 
             if pca_type == 'pca':
-                pca = PCA(n_components=n_components, random_state=random_state)
-                fitted = pca.fit_transform(data)
+                fitted, _, _, pca = dr.PCA(data)
             
             elif pca_type == 'kpca':
-                fitted = KernelPCA(n_components=n_components, kernel=kernel, gamma=gamma).fit_transform(data)
+                fitted = dr.KPCA(data)[0]
             
             else:
                 self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'kpca', got {pca_type}")
@@ -478,7 +478,7 @@ class Clustering:
             elif pca_type == 'pcoa':
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=RuntimeWarning)
-                    fitted = pcoa(DistanceMatrix(data)).samples.iloc[:, :n_components].values
+                    fitted = dr.PCOA(data)[0].samples.iloc[:, :n_components].values
 
             else:
                 self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'pcoa', got {pca_type}")

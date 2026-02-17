@@ -1,6 +1,8 @@
 import os
 import time
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
 
 from logger.logger import logger
@@ -197,9 +199,69 @@ class Plotter:
         for j in range(num_plots, len(axes)):
             fig.delaxes(axes[j])
 
-        plt.tight_layout()
-        self._visualize() if visualize else self._save("clustering", f"stability_k{k}", f"{distance}")
-        plt.close(fig)
+
+        self._close_plot(visualize, False, f"stability", "clustering", f"stability_k{k}", fig)
+    
+
+    def plot_DR(self, data: dict, method: str, n_components: int, visualize: bool = True, save: bool = False,
+                per_comp: pd.Series = None):
+        """
+        Plots dimensionality reduction results.
+        
+        Parameters
+        ----------
+            data: dict
+                A dictionary where keys are method names (e.g., 'PCA', 'KPCA')
+                and values are numpy arrays of the transformed data.
+            method: str 
+                The overall method name for the plot title and filename.
+            n_components: int
+                The number of components to plot (2 or 3).
+            visualize: bool
+                Whether to display the plot.
+                save: bool
+                Whether to save the plot to a file.
+            per_comp: pd.Series
+                principal components percents.
+        """
+        
+        fig, axes, num_plots = self._init_plot(data, f"{method.upper()}", n_components)
+
+        for i, (key, princ_vals) in enumerate(data.items()):
             
+            # Get only first n_components from dimensionality reduction results
+            
+
+            if i >= num_plots: # Safety break if more data items than allocated subplots
+                self.logger.warning(f"Skipping plot for '{key}' as there are no more subplots available.")
+                break
+            
+            ax = axes[i]
+            
+            if not isinstance(princ_vals, np.ndarray) or princ_vals.shape[1] < n_components:
+                self.logger.warning(f"Skipping plot for '{key}' due to invalid data format or insufficient components.")
+                ax.set_title(f"{key} (Data Invalid/Insufficient Components)")
+                continue
+
+            ax.set_title(key)
+            coords = [princ_vals[:, j] for j in range(n_components)]
+            ax.scatter(*coords, alpha=0.85)
+            if per_comp is not None:
+                ax.set_xlabel(per_comp[0] * 100)
+                ax.set_ylabel(per_comp[1] * 100)
+                if n_components == 3:
+                    ax.set_zlabel(per_comp[2] * 100)
+            else:
+                ax.set_xlabel("Dim 1")
+                ax.set_ylabel("Dim 2")
+                if n_components == 3:
+                    ax.set_zlabel("Dim 3")
+
+        for j in range(num_plots, len(axes)):
+            fig.delaxes(axes[j])
+
+        self._close_plot(visualize, save, method, "dimensionality_reduction", method, fig)
+
+
 # One time initialization of plotter object
 plotter = Plotter()

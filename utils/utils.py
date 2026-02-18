@@ -1,3 +1,5 @@
+import pandas as pd
+from scipy.stats import chi2_contingency
 from sklearn.pipeline import Pipeline
 
 
@@ -20,3 +22,17 @@ def format_pipeline(pipeline: Pipeline, name):
     return pipeline_str
 
 
+def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):
+        """
+        Computes a single contingency table for two given column.
+        """
+        
+        contingency = pd.crosstab(dataset[var1], dataset[var2])
+
+        chi2, p, _, _ = chi2_contingency(contingency)
+
+        summed = contingency.sum().sum()
+
+        contingency_prop  = contingency / summed
+
+        return contingency_prop, chi2, p, summed, contingency.shape 

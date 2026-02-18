@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 from utils.splitter import Splitter
-from fileio.df_loader import DataLoader
+from fileio.df_loader import dataloader
 from dataTransformers.scaler import SmartScaler
 from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
 from visualization.plotting import plotter
@@ -24,8 +24,7 @@ if __name__ == "__main__":
     split_config_file = "config/split.yaml"
     dim_config_file = "config/dimensionality_reduction.yaml"
     
-    # Instance dataloader and splitter to read and handle datasets 
-    dataloader = DataLoader()
+    # Instance Splitter 
     splitter = Splitter(config=split_config_file)
 
     # Scalers must be fitted on different dataset, thus using two objects avoids mixing the classes' internal states

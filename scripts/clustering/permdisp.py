@@ -10,7 +10,7 @@ if project_root not in sys.path:
 from skbio.diversity import beta_diversity
 from skbio.stats.distance import permanova, permdisp
 
-from fileio.df_loader import DataLoader
+from fileio.df_loader import dataloader
 from logger.logger import logger
 
 def main(): 
@@ -18,7 +18,7 @@ def main():
     # Load Dataset 
     file_path = 'datasets/raw_dataset.csv' 
 
-    df, microbial_cols, meta_cols = DataLoader().load_dataset(file_path, drop_response=False) 
+    df, microbial_cols, meta_cols = dataloader.load_dataset(file_path, drop_response=False) 
 
     # Extract abundance matrix 
     abundance_matrix = df[microbial_cols] 

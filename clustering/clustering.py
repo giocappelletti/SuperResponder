@@ -19,6 +19,7 @@ from joblib import Parallel, delayed
 from logger.logger import logger
 from fileio.serialization import serializer
 from utils.validators import validate_config
+from utils.utils import compute_contingency
 from visualization.plotting import plotter
 from fileio.df_loader import dataloader
 from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
@@ -102,21 +103,7 @@ class Clustering:
         dataset['cluster'] = labels
         
         return dataset, n_clusters, distance, save, save_format, useless_metadata, visualize
-
-
-    def _compute_contingency(self, dataset: pd.DataFrame, col: str):
-        """
-        Computes a single contingency table for a given column.
-        """
-        
-        contingency = pd.crosstab(dataset['cluster'], dataset[col])
-
-        chi2, p, _, _ = chi2_contingency(contingency)
-
-        contingency_prop  = contingency / contingency.sum().sum()
-
-        return contingency_prop, chi2, p
-
+    
 
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
         """
@@ -268,7 +255,7 @@ class Clustering:
 
         for col in categorical_meta:
             
-            contingency, chi2, p = self._compute_contingency(dataset, col)
+            contingency, chi2, p, _, _ = compute_contingency(dataset, "cluster", col)
            
             if save:
                 time_str = self.serializer.save_file(
@@ -343,7 +330,7 @@ class Clustering:
 
         dataset['response'] = orig_dataset['response'].loc[dataset.index]
         
-        contingency, chi2, p = self._compute_contingency(dataset, "response")
+        contingency, chi2, p, _, _ = compute_contingency(dataset, "cluster", "response")
 
         if save:
             self.serializer.save_file(

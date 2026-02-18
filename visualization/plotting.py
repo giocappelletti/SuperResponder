@@ -210,6 +210,112 @@ class Plotter:
         self._close_plot(visualize, False, f"stability", "clustering", f"stability_k{k}", fig)
     
 
+    def plot_metadata_correlation(self, 
+                                  p_matrix: pd.DataFrame, 
+                                  chi2_matrix: pd.DataFrame, 
+                                  visualize: bool = True, 
+                                  save: bool = False):
+        """
+        Plots heatmaps for p-values and chi-squared statistics from metadata correlation analysis.
+
+        Parameters
+        ----------
+            p_matrix: pd.DataFrame
+                Matrix of -log10(p-values).
+            chi2_matrix: pd.DataFrame
+                Matrix of chi-squared statistics.
+            visualize: bool, default True
+                Whether to display the plot.
+            save: bool, default False
+                Whether to save the plot to disk.
+                
+        """
+
+        title = "Chi-squared P-values Heatmap"
+        
+        fig, _, _ = self._init_plot([None], title)
+        sns.heatmap(p_matrix, annot=True, cmap='viridis', fmt=".2f", 
+                    cbar_kws={'label': '-log10(p-value)'})
+        plt.title(title)
+        self._close_plot(visualize, save, "p-values", "clustering", "metadata_correlation", fig)
+        
+        title = "Chi-squared values Heatmap"
+
+        fig, _, _ = self._init_plot([None], title)
+        
+        sns.heatmap(chi2_matrix, annot=True, cmap='coolwarm', fmt=".2f", 
+                    cbar_kws={'label': 'Chi-Squared values'})
+        
+        plt.title(title)
+
+        self._close_plot(visualize, save, "chi2", "clustering", "metadata_correlation", fig)
+        
+
+    def plot_cramers_v(self,
+                       data: pd.DataFrame,
+                       target_name: str,
+                       visualize: bool = True,
+                       save: bool = False):
+        
+        # P-value bar plot
+        title = f"P-value for each column compared to '{target_name}'"
+
+        fig, _, _ = self._init_plot([None], title)
+
+        sns.barplot(data, x='Column', y='P-value', color='blue')
+        plt.axhline(0.05, color='red', linestyle='--', label='P-value threshold (0.05)')
+        plt.title(title)
+        plt.xticks(rotation=45)
+        plt.legend()
+        
+        self._close_plot(visualize, 
+                         save, 
+                         f"p-value_barplot_{target_name}", 
+                         "correlation", 
+                         f"cramers_v_barplot_{target_name}", 
+                         fig)
+
+        # P-value heatmap
+        title = f"P-value Heatmap for '{target_name}'"
+        fig, _, _ = self._init_plot([None], title)
+        df_pvalue = data.set_index('Column')[['P-value']]
+        
+        sns.heatmap(df_pvalue, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': 'P-value'})
+        plt.title(title)
+        self._close_plot(visualize, 
+                         save,
+                         f"p-value_heatmap_{target_name}", 
+                         "correlation", 
+                         f"p_heatmap_{target_name}", 
+                         fig)
+        
+        # Chi-Squared Heatmap
+        title = f"Chi-Squared Heatmap for '{target_name}'"
+        fig, _, _ = self._init_plot([None], title)
+        df_chi2 = data.set_index('Column')[['Chi-Squared']]
+        sns.heatmap(df_chi2, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': 'Chi-Squared values'})
+        plt.title(title)
+        self._close_plot(visualize, 
+                         save, 
+                         f"chi2_heatmap_{target_name}", 
+                         "correlation", 
+                         f"chi_heatmap_{target_name}", 
+                         fig)
+
+        # Cramer's V Heatmap
+        title = f"Cramer's V Heatmap for '{target_name}'"
+        fig, _, _ = self._init_plot([None], title)
+        df_cramer = data.set_index('Column')[["Cramers_V"]]
+        sns.heatmap(df_cramer, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': "Cramer's V"})
+        plt.title(title)
+        self._close_plot(visualize, 
+                         save, 
+                         f"cramersv_heatmap_{target_name}", 
+                         "correlation", 
+                         f"cramersv_heatmap_{target_name}", 
+                         fig)
+
+
     def plot_DR(self, 
                 data: dict, 
                 method: str, 

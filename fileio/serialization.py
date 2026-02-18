@@ -68,7 +68,7 @@ class Serialization:
                   exp_type: str, 
                   exp_group: str, 
                   save_format: Literal['csv', 'tsv', 'xlsx'],
-                  distance_type=None,
+                  distance_type: str = None,
                   should_save_time=True) -> str | None:
         """
         Saves the results to file.
@@ -92,8 +92,11 @@ class Serialization:
         
         os.makedirs(output_dir, exist_ok=True)
 
-        path = os.path.join(output_dir, f"{exp_type}_{distance_type}")
-        
+        if distance_type is not None:
+            path = os.path.join(output_dir, f"{exp_type}_{distance_type}")
+        else:
+            path = os.path.join(output_dir, exp_type)
+
         self.write_to_disk(data, path, save_format)
 
         return time_str

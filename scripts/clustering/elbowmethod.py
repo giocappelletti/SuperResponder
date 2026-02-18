@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from dataTransformers.data_transformers import CLRTransformer
 from dataTransformers.scaler import SmartScaler
 from preprocessing.preprocess import Preprocessor
-from fileio.df_loader import DataLoader
+from fileio.df_loader import dataloader
 from clustering.clustering import Clustering
 
 
@@ -23,9 +23,6 @@ if __name__ == "__main__":
     dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
     clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml') 
     
-    # Instance dataloader
-    dataloader = DataLoader()
-
     # Load dataset
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 

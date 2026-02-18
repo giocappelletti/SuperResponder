@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from dataTransformers.data_transformers import CLRTransformer
-from dataTransformers.scaler import Scaler
+from dataTransformers.scaler import SmartScaler
 from preprocessing.preprocess import Preprocessor
 from fileio.df_loader import DataLoader
 from clustering.clustering import Clustering
@@ -19,8 +19,7 @@ from clustering.clustering import Clustering
 
 if __name__ == "__main__":
 
-    # Define paths
-
+    # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     modenesi_dataset_path = os.path.join(project_root, 'datasets', 'splitted', 'Full', 'modenesi.csv')
     dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
@@ -39,7 +38,7 @@ if __name__ == "__main__":
     # Istance preprocessor
     preprocessor = Preprocessor(
         config_path=dataset_config_path,
-        transformation=CLRTransformer,
+        transformer=CLRTransformer,
         scaler=StandardScaler
     )
 
@@ -54,7 +53,7 @@ if __name__ == "__main__":
     modenesi[ref_taxa_cols] = modenesi[ref_taxa_cols].apply(pd.to_numeric, errors='coerce')
 
     # Scale both using the same scaler instance to ensure consistency
-    scaler = Scaler()
+    scaler = SmartScaler()
     scaled_ref_taxa = scaler.fit_transform(X_ref_taxa)
     scaled_modenesi_taxa = scaler.transform(modenesi[ref_taxa_cols].copy())
     
@@ -62,10 +61,12 @@ if __name__ == "__main__":
     clustering = Clustering(clustering_config_path)
     
     # Run metadata analysis
-    _ = clustering.metadata_analysis(scaled_ref_taxa, ref_dataset, ref_meta_cols)
+    summary_df = clustering.metadata_analysis(scaled_ref_taxa, ref_dataset, ref_meta_cols)
     
     # Run response analysis
-    _, _, _ = clustering.response_analysis(data_matrix=scaled_ref_taxa, dataset=dataset_path, orig_dataset=dataset_path)
+    contingency, chi2, p_value = clustering.response_analysis(data_matrix=scaled_ref_taxa, 
+                                                              dataset=dataset_path, 
+                                                              orig_dataset=dataset_path)
     
-    # Run modenesi analysis
-    _ = clustering.modenesi_analysis(scaled_modenesi_taxa, scaled_ref_taxa) 
+    # Run clustering analysis on modenesi data
+    cluster_df = clustering.cluster_analysis(scaled_modenesi_taxa, scaled_ref_taxa) 

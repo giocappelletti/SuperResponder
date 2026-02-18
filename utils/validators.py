@@ -28,6 +28,20 @@ def validate_dict_of_strings(dict_of_strings: dict):
 
 
 def validate_config(config: dict, section: str) -> dict:
+    """
+    Validates a specific section of the configuration dictionary and extracts required parameters.
+
+    Parameters
+    ----------
+        config: dict
+            The full configuration dictionary loaded from a YAML file.
+        section: str
+            The specific section name to validate (e.g., 'split', 'kmedoids').
+
+    Returns
+    -------
+        dict: A dictionary containing the validated parameters for the requested section.
+    """
 
     s_config = config.get(section, {})
 
@@ -86,7 +100,11 @@ def validate_config(config: dict, section: str) -> dict:
     if "n_components" in needed:
         params["n_components"] = s_config.get('n_components', 2)
         validate_config_param_type("n_components", params["n_components"], int)
-        assert params["n_components"] in [2, 3], "n_components must be 2 or 3"
+        assert params["n_components"] >= -1, \
+            "n_components must be a positive integer or -1 if all components are to be used"
+        if params["n_components"] == -1:
+            params["n_components"] = None
+    
 
     if "kernel" in needed:
         params["kernel"] = s_config.get('kernel', 'rbf')
@@ -163,6 +181,5 @@ def validate_config(config: dict, section: str) -> dict:
         params["learning_rate"] = s_config.get('learning_rate', 'auto')
         validate_config_param_type("learning_rate", params["learning_rate"], int)
         assert params["learning_rate"] > 0, "learning_rate must be > 0"
-
 
     return params

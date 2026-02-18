@@ -10,9 +10,12 @@ class Logger:
 
     Parameters
     ----------
-        name (str): Name of the project.
-        logdir (str): Directory to save logs.
-        level (int): Logging level
+        name: str
+            Name of the project.
+        logdir: str
+            Directory to save logs.
+        level: int
+            Logging level
     """
 
     def __init__(self, name="SuperResponder", log_dir="./logs", level=logging.INFO):

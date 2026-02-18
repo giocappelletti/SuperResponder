@@ -7,32 +7,44 @@ project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 from utils.splitter import Splitter
 from fileio.df_loader import DataLoader
-from dataTransformers.scaler import Scaler
+from dataTransformers.scaler import SmartScaler
 from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
 from visualization.plotting import plotter
 
 
 if __name__ == "__main__":
     
+    # Define file paths
     dataset_path = "datasets/raw_dataset.csv"
     split_config_file = "config/split.yaml"
     dim_config_file = "config/dimensionality_reduction.yaml"
-
+    
+    # Instance dataloader and splitter to read and handle datasets 
     dataloader = DataLoader()
     splitter = Splitter(config=split_config_file)
-    full_scaler = Scaler()
-    split_scaler = Scaler()
+
+    # Scalers must be fitted on different dataset, thus using two objects avoids mixing the classes' internal states
+    full_scaler = SmartScaler()
+    split_scaler = SmartScaler()
+    
+    # Instance dimensionality reduction class
     dim_red = DimensionalityReduction(config_path=dim_config_file)
+    
+    # Convert labels from categorical to numerical values, e.g. Responder/Non-Responder becomes 0/1
     le = LabelEncoder()
 
+    # Used to gather all results -> build a single window with multiple plots
     data = {}
+    cumulative_vars = {}
+
 
     # Load Dataset, drop response and sanitize
-    raw_dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False, sanitize=True, set_index=False)
+    raw_dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False, sanitize=True)
 
     # Split
     train_set, test_set = splitter.split_train_test(raw_dataset)
@@ -42,39 +54,78 @@ if __name__ == "__main__":
     y_train = le.transform(train_set['response'])
     y_test = le.transform(test_set['response'])
     
-    # Drop response column and select only numeric columns
+    # Drop response column and select only numeric columns. We don't need metadata here
     dataset = raw_dataset.drop(columns=['response'])[taxa_cols]
     
     # Transform and Scale 
     dataset_transformed = full_scaler.transform_then_fit_transform(dataset)
-
     train_transformed = split_scaler.transform_then_fit_transform(train_set[taxa_cols])
     
     # Test set must not be fitted
     test_transformed = split_scaler.transform(test_set[taxa_cols])
 
-    # PCA
-    components, var_ratio, cum_var_ratio, _= dim_red.PCA(dataset_transformed)
+    # Compute Principal Components Analysis
+    components, var_ratio, cum_var_ratio, _ = dim_red.PCA(dataset_transformed)
 
     data['PCA'] = components
+    cumulative_vars['PCA'] = cum_var_ratio
 
+    # Compute Kernel PCA
     components, per_comp, cum_per_comp = dim_red.KPCA(dataset_transformed)
     
     data['KPCA'] = components
+    cumulative_vars['KPCA'] = cum_per_comp
 
-    # Avoid scaling data for PCOA
-    components, values, prop_expl, cum_prop_expl = dim_red.PCOA(dataset)
-
-    data['PCOA'] = components
-
+    # Compute T-Stochastic Neighbour Embedding
     results = dim_red.TSNE(dataset_transformed)
 
     data['TSNE'] = results
 
+    # Compute Principal Coordinate Analysis with bray-curtis distance. Avoid scaling data
+    components, values, prop_expl, cum_prop_expl = dim_red.PCOA(dataset, distance='braycurtis')
+
+    data['PCOA_bc'] = values
+    cumulative_vars['PCOA_bc'] = cum_prop_expl
+
+    # Compute PCOA with jensen-shannon distance. Avoid scaling data
+    components, values, prop_expl, cum_prop_expl = dim_red.PCOA(dataset, distance='jensenshannon')
+
+    data['PCOA_js'] = values
+    cumulative_vars['PCOA_js'] = cum_prop_expl
+
+    # Compute Partial Least Squares Discriminant Analysis 
     results = dim_red.PLS_DA(train_transformed, y_train, test_transformed)
 
     data['PLS_DA'] = results
 
-    plotter.plot_DR(data, "dimensionality_reduction", 2, per_comp=per_comp)
+    # Create a dictionary of labels for each DR method
+    # For PCA, KPCA, PCOA, TSNE, the labels are 'y' (full dataset)
+    # For PLS_DA, the labels are 'y_test' as 'results' corresponds to test_transformed
+    labels_for_dr = {
+        'PCA': y,
+        'KPCA': y,
+        'TSNE': y,
+        'PCOA_bc': y,
+        'PCOA_js': y,
+        'PLS_DA': y_test
+    }
+
+    # Plot Dimensionality Reduction results
+    plotter.plot_DR(data = data, 
+                    method = "dimensionality_reduction", 
+                    n_components = 2, 
+                    per_comp = per_comp, 
+                    labels_dict=labels_for_dr, 
+                    color_map=["red", "green"],)
+    
+    # Plot cumulative variance
+    plotter.plot_cumulative_vars(data = cumulative_vars)
+
+    # Compute Linear Discriminant Analysis
+    results = dim_red.LDA(train_transformed, y_train, test_transformed)
+
+    dataframe = pd.DataFrame({'Comp 1': results, 'Response': y_test})
+    plotter.plot_LDA(dataframe, transform_method="CLR")
+
 
 

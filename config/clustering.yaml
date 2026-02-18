@@ -13,7 +13,7 @@ kmedoids:
   save: False
   save_format: 'csv'
 
-modenesi:
+cluster_analisys:
   k_values: [2]
   metric: 'braycurtis'
   random_state: 42

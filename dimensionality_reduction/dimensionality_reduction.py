@@ -1,4 +1,8 @@
+from typing import Literal
+import pandas as pd
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import yaml
+import warnings
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, KernelPCA
@@ -50,7 +54,7 @@ class DimensionalityReduction:
         
         pca = PCA(n_components=n_components)
 
-        self.logger.info(f"Fitting PCA with n_components={n_components}")
+        self.logger.info(f"Computing PCA with n_components={n_components}")
 
         components = pca.fit_transform(data)
 
@@ -83,16 +87,15 @@ class DimensionalityReduction:
 
         kpca = KernelPCA(n_components=n_components, kernel=kernel, gamma=gamma)
         
-        self.logger.info(f"Fitting KPCA with n_components={n_components}, kernel={kernel}, gamma={gamma}")
+        self.logger.info(f"Computing KPCA with n_components={n_components}, kernel={kernel}, gamma={gamma}")
 
         components = kpca.fit_transform(data)
         per_comps = kpca.eigenvalues_ / kpca.eigenvalues_.sum()
-        print(type(per_comps))
 
         return components, per_comps, np.cumsum(per_comps)
     
 
-    def PCOA(self, data: np.ndarray):
+    def PCOA(self, data: np.ndarray, distance: Literal['braycurtis', 'jensenshannon'] = None):
         """
         Computes Principal Coordinate Analysis after reading config file.
         
@@ -100,6 +103,8 @@ class DimensionalityReduction:
         ----------
             data: np.ndarray
                 Data matrix.
+            distance: Literal['braycurtis', 'jensenshannon'], default None
+                Distance type. Overrides config file specidified distance, useful for testing.
         Returns
         ----------
             components: np.ndarray 
@@ -112,7 +117,7 @@ class DimensionalityReduction:
                 Cumulative Proportions explained
         """
         params = validate_config(self.config, 'pcoa')
-        distance = params['metric']
+        distance = params['metric'] if distance is None else distance
         
         assert distance in ['braycurtis', 'jensenshannon'], \
             f"Distance must be either 'braycurtis' or 'jensenshannon', got {distance}"
@@ -121,7 +126,10 @@ class DimensionalityReduction:
 
         self.logger.info(f"Computing PCOA with distance={distance}")
 
-        components = pcoa(DistanceMatrix(data))
+        # Avoid printing negative eigenvalue warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            components = pcoa(DistanceMatrix(data))
 
         prop_expl = components.proportion_explained
 
@@ -153,16 +161,16 @@ class DimensionalityReduction:
         tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate=learning_rate,
                     random_state=random_state, max_iter=max_iter, metric=metric)
         
-        self.logger.info(f"Fitting TSNE with n_components={n_components}, perplexity={perplexity}, "
+        self.logger.info(f"Computing TSNE with n_components={n_components}, perplexity={perplexity}, "
                          f"learning_rate={learning_rate}, random_state={random_state}, "
                          f"max_iter={max_iter}, metric={metric}")
 
         return tsne.fit_transform(data)
 
 
-    def PLS_DA(self, data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray):
+    def PLS_DA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray):
         """
-        Computes T-Stochastic Neighbour Embedding after reading config file.
+        Computes Partial Least Squares Discriminant Analysis after reading config file.
         
         Parameters
         ----------
@@ -182,8 +190,35 @@ class DimensionalityReduction:
 
         pls = PLSRegression(n_components=n_components)
 
-        self.logger.info(f"Fitting PLS with n_components={n_components}")
+        self.logger.info(f"Computing PLS with n_components={n_components}")
 
-        pls.fit(data, train_labels)
+        pls.fit(train_data, train_labels)
 
         return pls.transform(test_data)
+
+
+    def LDA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray,):
+        """
+        Computes Linear Discriminant Analysis after reading config file.
+
+        Parameters
+        ----------
+            train_data: np.ndarray
+                Train data matrix.
+            test_data: np.ndarray
+                Test Data matrix.
+            train_labels: np.ndarray
+                Labels (y) to fit the model.
+        Returns
+        ----------
+            results: np.ndarray 
+                Transformed and flattened LDA data.
+        """
+
+        lda = LinearDiscriminantAnalysis()
+
+        self.logger.info(f"Computing LDA")
+
+        return lda.fit(train_data, train_labels).transform(test_data).flatten()
+
+        

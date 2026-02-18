@@ -20,7 +20,7 @@ from logger.logger import logger
 from fileio.serialization import serializer
 from utils.validators import validate_config
 from visualization.plotting import plotter
-from fileio.df_loader import DataLoader
+from fileio.df_loader import dataloader
 from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
 
 
@@ -36,9 +36,11 @@ class Clustering:
         
         Parameters
         ----------
-            config_path (str): Path to the configuration file.
+            config_path: str
+                Path to the configuration file
         """
         self.logger = logger
+        self.dataloader = dataloader
         self.config_path = config_path
         self.serializer = serializer
         self.plotter = plotter
@@ -103,6 +105,9 @@ class Clustering:
 
 
     def _compute_contingency(self, dataset: pd.DataFrame, col: str):
+        """
+        Computes a single contingency table for a given column.
+        """
         
         contingency = pd.crosstab(dataset['cluster'], dataset[col])
 
@@ -119,13 +124,14 @@ class Clustering:
 
         Parameters
         ----------
-            data (np.ndarray): Data matrix or distance matrix.
+            data: np.ndarray
+                Data matrix or distance matrix
 
         Returns
         ----------
             **tuple ((tuple, tuple))**
-                - inertias: List of inertia values (sum of distances to medoids).
-                - silhouettes: List of mean silhouette scores.
+                - inertias: List of inertia values (sum of distances to medoids)
+                - silhouettes: List of mean silhouette scores
         """
 
         params = validate_config(self.config, 'elbow_silhouette')
@@ -165,10 +171,12 @@ class Clustering:
 
         Parameters
         ----------
-            data (np.ndarray): Data matrix or distance matrix.
+            data: np.ndarray
+                Data matrix or distance matrix
         Returns
         ----------
-            cluster_df: DataFrame with counts of samples per cluster for each k.
+            cluster_df: pd.DataFrame 
+                DataFrame with counts of samples per cluster for each k
         """
 
         params = validate_config(self.config, 'kmedoids')
@@ -212,19 +220,26 @@ class Clustering:
 
         return cluster_df
 
-    def metadata_analysis(self, data: np.ndarray, dataset: pd.DataFrame, meta_cols: list) -> pd.DataFrame:
+    def metadata_analysis(self, data: np.ndarray, dataset: pd.DataFrame | str, meta_cols: list) -> pd.DataFrame:
         """
         Performs k-medoids clustering and analyzes categorical metadata associated with clusters.
         
         Parameters
         ----------
-            data (np.ndarray): Scaled data matrix
-            dataset (pd.DataFrame): DataFrame with metadata
-            meta_cols (list): metadata columns list
+            data: np.ndarray
+                Scaled data matrix
+            dataset: pd.DataFrame or str
+                DataFrame with metadata or path to it
+            meta_cols: list
+                metadata columns list
 
         Returns:
-            summary_df: DataFrame with metadata analysis results
+            summary_df: pd.DataFrame
+                DataFrame with metadata analysis results
         """
+
+        if isinstance(dataset, str):
+            dataset = self.dataloader.load_dataset(dataset)
 
         dataset, n_clusters, metric, save, save_format, useless_metadata, \
             visualize = self._analysis(data, dataset)
@@ -292,27 +307,31 @@ class Clustering:
 
     def response_analysis(self, 
                           data_matrix: np.ndarray,
-                          dataset: str | pd.DataFrame, 
-                          orig_dataset: str | pd.DataFrame) -> tuple[pd.DataFrame, float, float]:
+                          dataset: pd.DataFrame | str, 
+                          orig_dataset: pd.DataFrame | str) -> tuple[pd.DataFrame, float, float]:
         """
         Performs k-medoids clustering and analyzes "response" label associated with clusters.
         
         Parameters
         ----------
-            data_matrix (np.ndarray): Data matrix
-            dataset (pd.DataFrame): DataFrame with metadata
-            orig_dataset: Path to raw dataset or pre_loaded dataframe
+            data_matrix: np.ndarray
+                Data matrix
+            dataset: pd.DataFrame or str
+                DataFrame with metadata or path to dataframe saved on disk
+            orig_dataset: pd.DataFrame or str
+                Original (raw) dataframe or path to it
 
         Returns
         ----------
             tuple (contingency, chi2, p)
+            Computed contingency, chi2 and p-value
                 """
 
         if isinstance(orig_dataset, str):
-            orig_dataset = DataLoader().load_dataset(orig_dataset, drop_response=False, sanitize=False)
-
+            orig_dataset = self.dataloader.load_dataset(orig_dataset, drop_response=False, sanitize=False)
+        
         if isinstance(dataset, str):
-            dataset = DataLoader().load_dataset(dataset, drop_response=False, sanitize=False, index_col=0)
+            dataset = self.dataloader.load_dataset(dataset, drop_response=False, sanitize=False, index_col=0)
 
         dataset, _, distance, save, save_format, _, \
             visualize = self._analysis(data_matrix, dataset, resp_analisys=True)
@@ -343,10 +362,35 @@ class Clustering:
         return contingency, chi2, p
 
 
-    def modenesi_analysis(self, data: np.ndarray, ref_data: np.ndarray, unifrac_dataframe: pd.DataFrame = None,
-                          orig_dataframe: pd.DataFrame = None, modenesi_dataframe: pd.DataFrame = None) -> pd.DataFrame:
+    def cluster_analysis(self, 
+                         data: np.ndarray,
+                         ref_data: np.ndarray, 
+                         unifrac_dataframe: pd.DataFrame | str = None,
+                         orig_dataframe: pd.DataFrame | str = None, 
+                         custom_dataframe: pd.DataFrame | str = None) -> pd.DataFrame:
+        """
+        Clustering analysis function to get clustering results of custom data against a reference dataset.
 
-        params = validate_config(self.config, 'modenesi')
+        Parameters
+        ----------
+            data: np.ndarray
+                Custom data matrix
+            ref_data: np.ndarray
+                Reference Data matrix
+            unifrac_dataframe: pd.DataFrame, default None
+                Unifrac distance matrix if Unifrac distance is used
+            orig_dataframe: pd.DataFrame, default None
+                Original dataframe if Unifrac distance is used
+            custom_dataframe: pd.DataFrame, default None
+                Custom dataframe if Unifrac distance is used
+        
+        Returns
+        ----------    
+            cluster_df: pd.DataFrame
+                DataFrame with counts of samples per cluster for each k             
+        """
+        
+        params = validate_config(self.config, 'cluster_analisys')
         k_values = params['k_values']
         metric = params['metric']
         random_state = params['random_state']
@@ -361,8 +405,8 @@ class Clustering:
                 "A Unifrac dataset must be passed to the function if Unifrac distance is used"
             assert orig_dataframe is not None, \
                 "orig_dataframe must be passed to the function if Unifrac distance is used"
-            assert modenesi_dataframe is not None, \
-                "modenesi_dataframe must be passed to the function if Unifrac distance is used"
+            assert custom_dataframe is not None, \
+                "custom_dataframe must be passed to the function if Unifrac distance is used"
 
         if unifrac_dataframe is not None and distance != "unifrac":
             self.logger.info("Unifrac Dataset was passed to the function, assuming Unifrac distance type")
@@ -396,10 +440,10 @@ class Clustering:
             
             else:
                 medoid_samples = orig_dataframe.index[current_medoid_indices].tolist()
-                dist_to_medoids = unifrac_dataframe.loc[modenesi_dataframe.index, medoid_samples].to_numpy()
+                dist_to_medoids = unifrac_dataframe.loc[custom_dataframe.index, medoid_samples].to_numpy()
 
-            modenesi_clusters = np.argmin(dist_to_medoids, axis=1)
-            cluster_distributions[k] = pd.Series(modenesi_clusters).value_counts().sort_index()
+            clusters = np.argmin(dist_to_medoids, axis=1)
+            cluster_distributions[k] = pd.Series(clusters).value_counts().sort_index()
 
         cluster_df = pd.DataFrame(cluster_distributions).fillna(0).astype(int)
 
@@ -409,14 +453,14 @@ class Clustering:
         if save:
             self.serializer.save_file(
                 data=cluster_df,
-                subfolder="modenesi",
-                exp_type="modenesi",
+                subfolder="clustering_analysis",
+                exp_type="clustering_analysis",
                 exp_group="clustering",
                 save_format=save_format,
                 distance_type=metric
             )
         else:
-            self.logger.info(f"Modenesi groups: {cluster_df}")
+            self.logger.info(f"Cluster groups: {cluster_df}")
 
         return cluster_df
 
@@ -427,12 +471,20 @@ class Clustering:
 
         Parameters
         ----------
-            data (np.ndarray): Data matrix.
-            pca_type (str): Type of PCA to use.
+            data: np.ndarray 
+                Data matrix
+            pca_type: Literal['pca', 'pcoa', 'kpca']
+                Type of dimensionality reduction technique to use \n
+                Must be either PCA, PCOA or Kernel PCA
         Returns
         ----------
-            fitted_pca: PCA object.
-            medoids: List of found medoids.
+            fitted_pca: 
+                PCA or MDS object
+            medoids: list 
+                List of found medoids
+        See Also
+        ----------
+            DimensionalityReduction.PCA, DimensionalityReduction.PCOA, DimensionalityReduction.KPCA
         """
         assert pca_type in ['pca', 'pcoa', 'kpca'], \
             f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}"
@@ -476,9 +528,7 @@ class Clustering:
                     fitted = MDS(n_components=n_components, metric="precomputed", random_state=42, n_init=4).fit_transform(data)
             
             elif pca_type == 'pcoa':
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=RuntimeWarning)
-                    fitted = dr.PCOA(data)[0].samples.iloc[:, :n_components].values
+                fitted = dr.PCOA(data)[0].samples.iloc[:, :n_components].values
 
             else:
                 self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'pcoa', got {pca_type}")
@@ -515,16 +565,19 @@ class Clustering:
 
         Params
         ----------
-            data: data array or distance matrix (if metric='precomputed')
-            k: number of clusters
-            n_splits: number of folds
-            test_size: size of the test fold
-            metric: 'Euclidean' or 'precomputed'
-            output_dir: output base directory
-            distance_name: name of the distance
+            data: np.ndarray
+                Data array or distance matrix (if metric='precomputed')
+        
         Returns
         ----------
-            None    
+            ari_results: pd.DataFrame
+                DataFrame with pairwise ARI scores.
+            fm_results: pd.DataFrame
+                DataFrame with pairwise Fowlkes-Mallows scores.
+            ari_matrix: pd.DataFrame
+                Pairwise ARI matrix.
+            fm_matrix: pd.DataFrame
+                Pairwise Fowlkes-Mallows matrix.
         """
 
         params = validate_config(self.config, 'stability_ari')

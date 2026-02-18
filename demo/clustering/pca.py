@@ -10,7 +10,7 @@ if project_root not in sys.path:
 from sklearn.preprocessing import StandardScaler
 
 from dataTransformers.data_transformers import CLRTransformer
-from dataTransformers.scaler import Scaler
+from dataTransformers.scaler import SmartScaler
 from preprocessing.preprocess import Preprocessor
 from fileio.df_loader import DataLoader
 from clustering.clustering import Clustering
@@ -18,7 +18,7 @@ from clustering.clustering import Clustering
 
 if __name__ == "__main__":
 
-    # Define paths    
+    # Define file paths    
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     modenesi_dataset_path = os.path.join(project_root, 'datasets', 'splitted', 'Full', 'modenesi.csv')
     unifrac_dataset_path = os.path.join(project_root, 'datasets', 'unifrac', 'dm_588_bacteria_w_unifrac.tsv')
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     # Instance preprocessor
     preprocessor = Preprocessor(
         config_path=dataset_config_path,
-        transformation=CLRTransformer,
+        transformer=CLRTransformer,
         scaler=StandardScaler
     )
 
@@ -45,8 +45,8 @@ if __name__ == "__main__":
         taxa_cols=ref_taxa_cols
     )
 
-    # Scale data
-    scaler = Scaler()
+    # Scale and transform data
+    scaler = SmartScaler()
     scaled_ref_taxa = scaler.fit_transform(X_ref_taxa)
     
     # Load Unifrac distance file

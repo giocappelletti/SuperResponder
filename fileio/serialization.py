@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Literal
 import pandas as pd
 
 from logger.logger import logger
@@ -11,20 +12,45 @@ class Serialization:
     
     Parameters
     ----------
-        base_dir (str): Base directory to save results.
+        base_dir: str
+            Directory to store results
+        cache_dir: str
+            Directory to store cached datasets in feather format.
     """
 
-    def __init__(self, base_dir="./results"):
+    def __init__(self, base_dir="./results", cache_dir=".cached_datasets"):
         self.base_dir = base_dir
+        self.cache_dir = cache_dir
         self.logger = logger
-        os.makedirs(self.base_dir, exist_ok=True)    
 
+    def cache_dataset(self, dataset: pd.DataFrame, path: str):
+        """
+        Save optimized feather file for next usage.
+        """
+        self.logger.info(f"Caching dataset to {path} for future use")
+        os.makedirs(os.path.join(self.cache_dir, os.path.dirname(path)), exist_ok=True)
+        
+        try:
+            dataset = dataset.copy()
+            dataset.to_feather(os.path.join(self.cache_dir, f"{path}.feather"))
+            
+            self.logger.info(f"Dataset cached successfully")
 
-    def write_to_disk(self, data: pd.DataFrame, path: str, save_format: str, index: bool = True):
+        except Exception as e:
+            self.logger.warning(f"Failed to cache dataset to {path}: {e}")
+
+    def write_to_disk(self, 
+                      data: pd.DataFrame, 
+                      path: str, 
+                      save_format: Literal['csv', 'tsv', 'xlsx'],
+                      index: bool = True):
+        """
+        Write results to file.
+        """
         
         self.logger.info(f"Saving results to file: {path}.{save_format}")
 
-        try:
+        try:            
             if save_format in ["csv", "tsv"]:
                 separator = "," if save_format == "csv" else "\t"
                 data.to_csv(f"{path}.{save_format}", sep=separator, index=index)
@@ -36,8 +62,14 @@ class Serialization:
             self.logger.error(f"Error saving file: {e}")
 
 
-    def save_file(self, data: pd.DataFrame, subfolder, exp_type, exp_group, 
-                  save_format, distance_type=None, should_save_time=True) -> str | None:
+    def save_file(self, 
+                  data: pd.DataFrame, 
+                  subfolder: str, 
+                  exp_type: str, 
+                  exp_group: str, 
+                  save_format: Literal['csv', 'tsv', 'xlsx'],
+                  distance_type=None,
+                  should_save_time=True) -> str | None:
         """
         Saves the results to file.
 
@@ -57,6 +89,7 @@ class Serialization:
 
         time_str = time.strftime('%Y%m%d_%H%M%S') if should_save_time else ""
         output_dir = os.path.join(self.base_dir, exp_group, f"{time_str}", subfolder)
+        
         os.makedirs(output_dir, exist_ok=True)
 
         path = os.path.join(output_dir, f"{exp_type}_{distance_type}")
@@ -66,11 +99,5 @@ class Serialization:
         return time_str
        
 
-
 # One time initialization of serializer object
 serializer = Serialization()
-
-if __name__ == "__main__":
-
-    serializer = Serialization()
-    serializer.save_to_excel(None, "test", "euclidean")  # Example usage

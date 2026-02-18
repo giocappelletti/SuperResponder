@@ -1,8 +1,8 @@
 pca:
-  n_components: 3
+  n_components: -1
 
 kernelpca:
-  n_components: 3
+  n_components: -1
   kernel: 'rbf'
   gamma: 0.0001
 
@@ -10,7 +10,7 @@ pcoa:
   metric: 'braycurtis'
 
 tsne:
-  n_components: 3
+  n_components: 2
   random_state: 42
   metric: 'euclidean'
   max_iter: 3000
@@ -18,9 +18,6 @@ tsne:
   learning_rate: 100
 
 pls_regression:
-  n_components: 3
-
-lda:
-  n_components: 3
+  n_components: 2
 
 

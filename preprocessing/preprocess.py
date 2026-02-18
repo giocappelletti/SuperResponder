@@ -17,12 +17,15 @@ class Preprocessor:
 
     Parameters
     ----------
-        config_path (str): Path to the YAML configuration file.
-        transformation (class): Class for compositional transformation (e.g., CLR).
-        scaler (class): Scikit-learn scaler class (e.g., StandardScaler).
+        config_path: str
+            Path to the YAML configuration file.
+        transformation: class
+            Class for compositional transformation (e.g., CLR).
+        scaler: class
+            Scaler class (e.g., StandardScaler).
     """
 
-    def __init__(self, config_path="config/features.yaml", transformation=CLRTransformer, scaler=StandardScaler):
+    def __init__(self, config_path="config/features.yaml", transformer=CLRTransformer, scaler=StandardScaler):
 
         self.logger = logger
 
@@ -30,7 +33,7 @@ class Preprocessor:
 
         self.logger.info(f"Loading preprocessing configuration from {self.config_path}")
 
-        self.transformation = transformation
+        self.transformation = transformer
 
         self.logger.info(f"Preprocessor: Using transformation {self.transformation.__name__}")
 
@@ -64,13 +67,18 @@ class Preprocessor:
         
         Parameters
         ----------
-            complete_df (pd.DataFrame): The complete DataFrame from DataLoader.
-            use_metadata (bool, default=True): Boolean flag to determine if metadata should be included.
-            taxa_cols (list, default=None): List of taxonomic columns.
+            complete_df: pd.DataFrame
+                The complete DataFrame from DataLoader.
+            use_metadata: bool, default=True
+                Boolean flag to determine if metadata should be included.
+            taxa_cols: list, default=None
+                List of taxonomic columns.
         Returns
         -------
             tuple (DataFrame, ColumnTransformer)
+                Transformed DataFrame and ColumnTransformer
         """
+
         if not use_metadata:
             # Only taxa, no preprocessing pipeline for metadata
             return complete_df[taxa_cols], None
@@ -88,6 +96,7 @@ class Preprocessor:
             self.numeric_features, 
             compositional_features=taxa_cols
         )
+
 
     def _fillna_metadata(self, dataset, useless_metadata):
         """
@@ -110,6 +119,7 @@ class Preprocessor:
             dataframe['atb'] = dataframe['atb'].fillna('missing')
             
         return dataframe
+
 
     def _build_preprocessor_engine(self, categorical_features, ordinal_features, 
                                    numeric_features, compositional_features):
@@ -168,6 +178,7 @@ class Preprocessor:
         """
         Main entry point to prepare the dataset and the preprocessing engine.
         """
+        
         # Ensure default empty lists if none provided
         cat_f = categorical_features or []
         ord_f = ordinal_features or []

@@ -8,7 +8,8 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
     
     Parameters
     ----------
-        pseudo_count (int, default=None): Pseudo count
+        pseudo_count: int, default=None
+            Pseudo count to be added to data
 
     """
 
@@ -21,16 +22,21 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
         
         Parameters
         ----------
-            data (pd.DataFrame): Input data to be transformed.
+            data: pd.DataFrame
+                Input data to be transformed.
         
         Returns
         -------
-            pd.DataFrame: Transformed data.
+            pd.DataFrame
+                Transformed data.
         """
         data = data + self.pseudo_count if self.pseudo_count is not None else multi_replace(data)
         return clr(data)
     
     def fit(self, x, y=None):
+        """
+        Fits the transformer. No-op for CLRTransformer as it doesn't learn parameters from data.
+        """
         return self
 
     def __setstate__(self, state):
@@ -43,6 +49,9 @@ class TSSTransformer(BaseEstimator, TransformerMixin):
     """Total Sum Scaling (TSS) Transformer."""
     
     def fit(self, x, y=None):
+        """
+        Fits the transformer. No-op for TSSTransformer as it doesn't learn parameters from data.
+        """
         return self
 
     def transform(self, data):
@@ -51,10 +60,12 @@ class TSSTransformer(BaseEstimator, TransformerMixin):
         
         Parameters
         ----------
-            data (pd.DataFrame): Input data to be transformed.
+            data: pd.DataFrame
+                Input data to be transformed.
         
         Returns
         -------
-            pd.DataFrame: Transformed data.
+            pd.DataFrame: 
+                Transformed data.
         """
         return data.div(data.sum(axis=1), axis=0)

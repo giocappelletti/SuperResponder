@@ -1,5 +1,7 @@
 import os
 import time
+import warnings
+from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -21,22 +23,18 @@ class Plotter:
         self.output_dir = output_dir
         self.logger = logger
 
-    def _visualize(self):
-        """
-        Displays the current plot.
-        """
-        self.logger.info("Displaying plot")
-        plt.show()
 
     def _save(self, subfolder, exp_name, metric_name, bbox_inches=None):
         """
         Saves the plot to a file with metric-specific naming.
         """
+
         out_path = os.path.join(self.output_dir, subfolder, f"{time.strftime('%Y%m%d_%H%M%S')}", exp_name)
         os.makedirs(out_path, exist_ok=True)
         
         safe_name = sanitize_filename(metric_name)
-        save_path = os.path.join(out_path, f"{exp_name}_{safe_name}.png")
+        dest_name = f"{exp_name}_{safe_name}.png" if exp_name != safe_name else f"{safe_name}.png"
+        save_path = os.path.join(out_path, f"{dest_name}.png")
         
         try:
             plt.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
@@ -45,10 +43,12 @@ class Plotter:
         except:
             self.logger.warning(f"Error saving plot to: {save_path}")
 
+
     def _compute_rows_cols(self, num_values):
         """
         Computes the number of rows and columns for subplots.
         """        
+
         # Max 3 columns is usually better for readability with legends
         ncols = max(1, min(3, num_values))
         nrows = max(1, (num_values + ncols - 1) // ncols)
@@ -57,14 +57,17 @@ class Plotter:
 
 
     def _init_plot(self, values, title, n_components = None):
-        
+        """
+        Initialize plot by computing rows and columns and setting up subplots.
+        """
         num_values = len(values)
 
         nrows, ncols = self._compute_rows_cols(num_values)
 
         # Determine if 3D projection is needed
         projection = '3d' if n_components == 3 else None
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5), squeeze=False, subplot_kw={'projection': projection})
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5),
+                                 squeeze=False, subplot_kw={'projection': projection})
         fig.canvas.manager.set_window_title(title)
       
         return fig, axes.flatten(), num_values
@@ -72,29 +75,32 @@ class Plotter:
 
     def _close_plot(self, visualize, save, metric_name, subfolder, exp_name, fig):
         """
-        Closes the current plot.
+        Sets tight layout and closes the current plot.
         """
-        plt.tight_layout()
+
+        plt.tight_layout(h_pad=2, w_pad=2)
 
         if visualize:
-            self._visualize() 
+            self.logger.info("Displaying plot")
+            plt.show()
+        
         if save:
             self._save(subfolder, exp_name, metric_name, bbox_inches='tight')
 
         plt.close(fig)
 
 
-    def _plot_elbow_and_silhouette(self, ks, inertias, silhouettes, tick_values, 
-                                  metric_name, visualize=True, save=False):
+    def _plot_elbow_and_silhouette(self, 
+                                   ks, 
+                                   inertias, 
+                                   silhouettes, 
+                                   tick_values, 
+                                   metric_name, 
+                                   visualize = True, 
+                                   save = False):
         """
         Plots Elbow and Silhouette results with the specific metric name integrated,
         using _init_plot for consistent subplot initialization.
-        
-        Parameters
-        ----------
-            ks, inertias, silhouettes, tick_values: Data from Clustering class.\n
-            metric_name (string):  name of the metric.
-            visualize (bool):  wether to show or save the plot.
         """
         
         # Initialize subplots using _init_plot
@@ -187,6 +193,7 @@ class Plotter:
         Plots stability heatmaps for ARI and Fowlkes-Mallows metrics.
         matrices_data: list of (matrix, name) tuples, e.g., [(ari_matrix, "ARI"), (fm_matrix, "Fowlkes-Mallows")]
         """
+
         fig, axes, num_plots = self._init_plot(matrices_data, f"Clustering Stability - {distance} distance - k={k}")
 
         for i, (matrix, name) in enumerate(matrices_data):
@@ -203,8 +210,15 @@ class Plotter:
         self._close_plot(visualize, False, f"stability", "clustering", f"stability_k{k}", fig)
     
 
-    def plot_DR(self, data: dict, method: str, n_components: int, visualize: bool = True, save: bool = False,
-                per_comp: pd.Series = None):
+    def plot_DR(self, 
+                data: dict, 
+                method: str, 
+                n_components: int, 
+                visualize: bool = True, 
+                save: bool = False,
+                per_comp: pd.Series = None, 
+                labels_dict: dict = None,
+                color_map: list = None):
         """
         Plots dimensionality reduction results.
         
@@ -223,14 +237,12 @@ class Plotter:
                 Whether to save the plot to a file.
             per_comp: pd.Series
                 principal components percents.
-        """
+        """        
         
         fig, axes, num_plots = self._init_plot(data, f"{method.upper()}", n_components)
 
-        for i, (key, princ_vals) in enumerate(data.items()):
-            
-            # Get only first n_components from dimensionality reduction results
-            
+        # Support plotting multiple DR methods in a single window
+        for i, (key, princ_vals) in enumerate(data.items()):            
 
             if i >= num_plots: # Safety break if more data items than allocated subplots
                 self.logger.warning(f"Skipping plot for '{key}' as there are no more subplots available.")
@@ -241,26 +253,213 @@ class Plotter:
             if not isinstance(princ_vals, np.ndarray) or princ_vals.shape[1] < n_components:
                 self.logger.warning(f"Skipping plot for '{key}' due to invalid data format or insufficient components.")
                 ax.set_title(f"{key} (Data Invalid/Insufficient Components)")
-                continue
+                #continue
 
             ax.set_title(key)
             coords = [princ_vals[:, j] for j in range(n_components)]
-            ax.scatter(*coords, alpha=0.85)
-            if per_comp is not None:
-                ax.set_xlabel(per_comp[0] * 100)
-                ax.set_ylabel(per_comp[1] * 100)
-                if n_components == 3:
-                    ax.set_zlabel(per_comp[2] * 100)
+
+            scatter_c_arg = None
+            current_labels = None
+            if labels_dict is not None and key in labels_dict:
+                current_labels = labels_dict[key]
+
+            if current_labels is not None and len(current_labels) == princ_vals.shape[0]:
+                if color_map is not None:
+                    unique_labels = np.unique(current_labels)
+                    if len(color_map) < len(unique_labels):
+                        self.logger.warning(
+                            f"Not enough colors in 'color_map' for all unique labels ({len(unique_labels)}). "
+                            f"Provided {len(color_map)} colors. Using default colormap."
+                        )
+                        # Fallback to default matplotlib colormap if not enough colors
+                        scatter_c_arg = current_labels
+                    else:
+                        # Map numerical labels (0, 1, ...) to colors from color_map
+                        scatter_c_arg = [color_map[label] for label in current_labels]
+                else:
+                    # No color_map provided, use current_labels with a default colormap
+                    scatter_c_arg = current_labels
+
+                # Pass cmap only if c is numerical, otherwise it will be ignored or cause issues
+                scatter = ax.scatter(*coords, alpha=0.85, c=scatter_c_arg, cmap='viridis' if color_map is None else None)
+
+                if color_map is not None and isinstance(scatter_c_arg[0], str):
+                    # Manually create legend handles when color_map was successfully applied as strings
+                    unique_labels = np.unique(current_labels)
+                    legend_handles = []
+                    legend_labels = []
+                    for label_val in unique_labels:
+                        if label_val < len(color_map): # Ensure index is valid
+                            color = color_map[label_val]
+                            legend_handles.append(Line2D([0], [0], marker='o', color='w',
+                                                         markerfacecolor=color, markersize=10))
+                            legend_labels.append("Responder" if label_val == 1 else "Non-Responder") # Using numerical label as string
+                    ax.legend(handles=legend_handles, labels=legend_labels, title="Labels")
+                else:
+                    # Use scatter.legend_elements() for numerical 'c' values and a colormap
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        ax.legend(*scatter.legend_elements(), title="Labels")
             else:
-                ax.set_xlabel("Dim 1")
-                ax.set_ylabel("Dim 2")
+                # Default to gray if no labels or labels don't match
+                ax.scatter(*coords, alpha=0.85, c=['gray'] * princ_vals.shape[0])
+
+            if per_comp is not None:
+                ax.set_xlabel(f"1st comp {per_comp[0] * 100}")
+                ax.set_ylabel(f"2nd comp {per_comp[1] * 100}")
                 if n_components == 3:
-                    ax.set_zlabel("Dim 3")
+                    ax.set_zlabel(f"3rd comp {per_comp[2] * 100}")
+            else:
+                ax.set_xlabel("1st comp")
+                ax.set_ylabel("2nd comp")
+                if n_components == 3:
+                    ax.set_zlabel("3rd comp")
+            
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.5)
+                spine.set_color('gray')
 
         for j in range(num_plots, len(axes)):
             fig.delaxes(axes[j])
 
         self._close_plot(visualize, save, method, "dimensionality_reduction", method, fig)
+
+
+    def plot_cumulative_vars(self, 
+                             data: dict,
+                             threshold : float = 0.9,
+                             save = False,
+                             visualize = True):
+        """
+        Plots the cumulative explained variance for different dimensionality reduction methods.
+
+        Parameters
+        ----------
+            data: dict
+                Dictionary where keys are method names and values are arrays of cumulative variance.
+            threshold: float, default 0.9
+                The variance threshold to highlight on the plot.
+            save: bool, default False
+                Whether to save the plot to disk.
+            visualize: bool, default True
+                Whether to display the plot.
+                
+        """
+        # Filter out useless results
+        valid_variances = {k: np.asarray(v)
+                        for k, v in data.items()
+                        if v is not None and len(v) > 0}
+
+        assert len(valid_variances) > 0, \
+            f"Cannot create cumulative variance plot with not enough valid variances."
+        
+        max_n = max(v.shape[0] for v in valid_variances.values())
+
+        fig, _, _ = self._init_plot([None], "Cumulative Explained Variance")
+
+        plt.grid(True, linestyle='--', alpha=0.3, zorder=0)
+
+        for method, variances in valid_variances.items():
+            x = np.arange(1, len(variances) + 1)
+            label = ""
+            if method == "PCOA_bc":
+                label = "PCoA (Bray-Curtis)"
+            elif method == "PCOA_js":
+                label = "PCoA (Jensen-Shannon)"
+            else:
+                label = method
+
+            plt.plot(x, variances, label=label, linewidth=2, zorder=3)
+
+            # Number of components to reach threshold and annotate
+            threshold_reached_indices = np.where(variances >= threshold)[0]
+            if threshold_reached_indices.size > 0:
+                n_comp = threshold_reached_indices[0] + 1
+
+                plt.scatter(n_comp, variances[n_comp - 1], color='darkred', s=40, zorder=5)
+
+                plt.annotate(f'{n_comp}',
+                            xy=(n_comp, variances[n_comp - 1]),
+                            xytext=(6, -10),
+                            textcoords='offset points',
+                            fontsize=9,
+                            color='darkred',
+                            bbox=dict(boxstyle='round,pad=0.3',
+                            facecolor='white',
+                            edgecolor='white',
+                            alpha=0.8))
+            else:
+                self.logger.warning(f"Threshold {threshold*100}% not reached for method '{method}'. No annotation will be plotted.")
+
+        plt.axhline(y=threshold, color='black', linestyle=':', linewidth=1.5, alpha=0.8, label=f'Threshold {threshold*100}%')
+
+        plt.xticks(np.arange(1, max_n + 1, max(1, max_n // 10)))
+        plt.yticks(np.arange(0, 1.01, 0.1))
+        plt.xlabel('Components', fontsize=12)
+        plt.ylabel('Cumulative Variance', fontsize=12)
+        plt.legend()
+        
+        self._close_plot(visualize, 
+                         save, 
+                         "dimensionality_reduction",
+                         "cumulative_variance", 
+                         "dimensionality_reduction",
+                         fig)
+
+
+    def plot_LDA(self,
+                 data: pd.DataFrame,
+                 palette: dict = None,
+                 transform_method: str = None,
+                 visualize: bool = True,
+                 save: bool = False):
+        """
+        Plots the results of Linear Discriminant Analysis using a Kernel Density Estimate (KDE).
+
+        Parameters
+        ----------
+            data: pd.DataFrame
+                DataFrame containing the LDA components and labels.
+            palette: dict, optional
+                Color mapping for the labels.
+            transform_method: str, optional
+                The name of the transformation method used (e.g., 'CLR').
+            visualize: bool, default True
+                Whether to display the plot.
+            save: bool, default False
+                Whether to save the plot to disk.
+                
+        """
+
+        assert isinstance(data, pd.DataFrame), \
+            f"data must be of type pd.DataFrame, got {type(data)}"
+
+        fig, _, _ = self._init_plot([None], "LDA")
+
+        if palette is None:
+            palette = {0: "red", 1: "green"}
+
+        sns.kdeplot(
+            data=data,
+            x='Comp 1',
+            hue='Response',
+            fill=True,
+            alpha=0.4,
+            palette = palette,
+            legend=False
+        )
+
+        legend_elements = [
+            Line2D([0], [0], marker='o', color='w', label='Non Responder', markerfacecolor='red', markersize=7),
+            Line2D([0], [0], marker='o', color='w', label='Responder', markerfacecolor='green', markersize=7)
+        ]
+
+        plt.legend(handles=legend_elements)
+        plt.xlabel('Component 1')
+        plt.ylabel('Density')
+        plt.title(f'Linear Discriminant Analysis ({transform_method.upper()})')
+        
+        self._close_plot(visualize, save, "LDA", "clustering", "LDA", fig)
 
 
 # One time initialization of plotter object

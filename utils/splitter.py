@@ -27,13 +27,26 @@ class Splitter:
         self.dataloader = DataLoader()
 
 
-    def split_train_test(self, dataset: pd.DataFrame | str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def _cache(self, dataset: pd.DataFrame, path: str):
+        """
+        Save optimized feather file for next usage.
+        """
+        # Removes "datasets/" from path to avoid redundancy
+        root_name = path.split("/")[0]
+        dest_path = path.replace(f"{root_name}/", "")
+        serializer.cache_dataset(dataset, dest_path)
+
+
+    def split_train_test(self, dataset: pd.DataFrame | str, cache_dataset = True) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Splits a dataset into training and test sets, resetting indexes.
         
         Parameters
         -------
-            dataset (pd.DataFrame or str): The dataframe to split or a path to the dataset file.
+            dataset: pd.DataFrame or str 
+                The dataframe to split or a path to the dataset file.
+            cache_dataset: bool, default True
+                Wether to save the dataframe in feather format for subsequent use.
 
         Returns
         -------
@@ -67,22 +80,37 @@ class Splitter:
             os.makedirs(path, exist_ok=True)
             serializer.write_to_disk(train_set, train_path, save_format, index=False)
             serializer.write_to_disk(test_set, test_path, save_format, index=False)
-
+            
+            if cache_dataset:
+                self._cache(train_set, train_path)
+                self._cache(test_set, test_path)
+        
         return train_set, test_set
 
 
-    def split_by_type(self, dataset: pd.DataFrame | str, dname: str = None, column_types: dict = None) -> dict[str, pd.DataFrame]:
+    def split_by_type(self, 
+                      dataset: pd.DataFrame | str, 
+                      dname: str = None,
+                      column_types: dict = None,
+                      cache_dataset = True) -> dict[str, pd.DataFrame]:
         """
         Splits a dataframe by different column types specified in config file.
         
         Parameters
         -------
-            dataset (pd.DataFrame or str): The dataframe to split by type or a path to the dataset file
-            dname (str): Name of the dataframe to be saved on disk
+            dataset: pd.DataFrame or str
+                The dataframe to split by type or a path to the dataset file.
+            dname: str 
+                Name of the dataframe to be saved on disk.
+            column_types: dict, default None
+                Used to specify column types to split by.
+            cache_dataset: bool, default True
+                Wether to save the dataframe in feather format for subsequent use.
         
         Returns
         -------
-            dict[str, pd.DataFrame]: A dictionary containing the datasets splitted by types
+            dict[str, pd.DataFrame]
+                A dictionary containing the datasets splitted by types.
         """
 
         params = validate_config(self.config, "type_split")
@@ -103,31 +131,44 @@ class Splitter:
         for column, values in column_types.items():
             if column in dataset.columns:
                 self.logger.info(f"Splitting dataset by {column} type")
+                
                 for col_type in values:
                     splitted = dataset[dataset[column] == col_type]
                     datasets[col_type] = splitted.copy()
+                    
                     if save:
                         column_path = os.path.join(path, column)
-                        os.makedirs(path, exist_ok=True)
                         os.makedirs(column_path, exist_ok=True)
                         splitted_path = os.path.join(column_path, f"{col_type}_{dname}")
                         serializer.write_to_disk(splitted, splitted_path, save_format, index=False)
+                        
+                        if cache_dataset:
+                            self._cache(splitted, splitted_path)
             else:
                 self.logger.warning(f"'{column}' not found in dataset. Skipping split by type for this column")
 
         return datasets
 
 
-    def collapse(self, df_collapsed: pd.DataFrame | str, ref_dataset: pd.DataFrame | str, dname: str = None):
+    def collapse(self, 
+                 df_collapsed: pd.DataFrame | str, 
+                 ref_dataset: pd.DataFrame | str, 
+                 dname: str = None,
+                 cache_dataset = True):
         """
         Collapses dataset by filtering out unwanted column types and sorting the results, while simultaneously
         cross-checking the presence of the values in a reference dataframe.
 
         Parameters
         -------
-            df_collapsed (pd.DataFrame or str): The dataframe to collapse or a path to the dataset file.
-            ref_dataset (pd.DataFrame or str): The reference dataframe for cross-checking or a path to the dataset file.
-            dname (str): Name of the dataframe to be saved on disk.
+            df_collapsed: pd.DataFrame or str 
+                The dataframe to collapse or a path to the dataset file.
+            ref_dataset: pd.DataFrame or str
+                The reference dataframe for cross-checking or a path to the dataset file.
+            dname: 
+                Name of the dataframe to be saved on disk.
+            cache_dataset: bool, default True
+                Wether to save the dataframe in feather format for subsequent use.
 
         Returns
         -------
@@ -165,10 +206,12 @@ class Splitter:
         collapsed_dataset = df[df[sort_by].isin(ref_df[sort_by])]
         
         if save:
-            os.makedirs(path, exist_ok=True)
             os.makedirs(os.path.join(path, "collapsed"), exist_ok=True)
             collapsed_path = os.path.join(path, "collapsed", dname)
             serializer.write_to_disk(collapsed_dataset, collapsed_path, save_format, index=False)
-
+            
+            if cache_dataset:
+                self._cache(collapsed_dataset, collapsed_path)
+            
         return collapsed_dataset
     

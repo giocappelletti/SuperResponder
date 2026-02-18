@@ -10,30 +10,32 @@ if project_root not in sys.path:
 
 from utils.splitter import Splitter
 
-
 if __name__ == "__main__":
 
+    # Define file paths 
     config_file = "config/split.yaml"
-    splitter = Splitter(config=config_file)
-
     raw = "datasets/raw_dataset.csv"
     genus = "datasets/genus_r.tsv"
     
+    # Instance splitter object
+    splitter = Splitter(config=config_file)
+
     # Split raw dataset in train and test sets
     train_set, test_set = splitter.split_train_test(raw)
 
-    # Filter by cancer type
+    # Filter by cancer type (see config file)
     train_datasets = splitter.split_by_type(train_set, "train")
     test_datasets = splitter.split_by_type(test_set, "test")
     
     # Extract italians
     modenesi = splitter.split_by_type(genus, "modenesi", {'country': ['Italy']})
     
+    # Split genus dataset in train and test sets
     genus_train, genus_test = splitter.split_train_test(genus)
     
     # Collapse datasets
     train = splitter.collapse(genus_train, raw, "train_collapse")
     test = splitter.collapse(genus_test, raw, "test_collapse")
-    
+
 
     

@@ -23,8 +23,7 @@ class Plotter:
         self.output_dir = output_dir
         self.logger = logger
 
-
-    def _save(self, subfolder, exp_name, metric_name, bbox_inches=None):
+    def _save(self, fig, subfolder, exp_name, metric_name, bbox_inches=None):
         """
         Saves the plot to a file with metric-specific naming.
         """
@@ -33,15 +32,15 @@ class Plotter:
         os.makedirs(out_path, exist_ok=True)
         
         safe_name = sanitize_filename(metric_name)
-        dest_name = f"{exp_name}_{safe_name}.png" if exp_name != safe_name else f"{safe_name}.png"
+        dest_name = f"{exp_name}_{safe_name}" if exp_name != safe_name else f"{safe_name}"
         save_path = os.path.join(out_path, f"{dest_name}.png")
         
-        try:
-            plt.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
+        try: 
+            fig.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
             self.logger.info(f"Plot saved to: {save_path}")
         
-        except:
-            self.logger.warning(f"Error saving plot to: {save_path}")
+        except Exception as e:
+            self.logger.warning(f"Error saving plot to: {save_path}: {e}")
 
 
     def _compute_rows_cols(self, num_values):
@@ -66,6 +65,10 @@ class Plotter:
 
         # Determine if 3D projection is needed
         projection = '3d' if n_components == 3 else None
+
+        # Close all existing figures to prevent implicit figure creation issues
+        # when plt.show() is called repeatedly in a loop.
+        plt.close('all')
         fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5),
                                  squeeze=False, subplot_kw={'projection': projection})
         fig.canvas.manager.set_window_title(title)
@@ -78,15 +81,15 @@ class Plotter:
         Sets tight layout and closes the current plot.
         """
 
-        plt.tight_layout(h_pad=2, w_pad=2)
+        fig.tight_layout(h_pad=2, w_pad=2) # Operate on the specific figure
 
         if visualize:
             self.logger.info("Displaying plot")
             plt.show()
         
         if save:
-            self._save(subfolder, exp_name, metric_name, bbox_inches='tight')
-
+            self._save(fig, subfolder, exp_name, metric_name, bbox_inches='tight') # Pass fig to _save
+            
         plt.close(fig)
 
 
@@ -210,6 +213,21 @@ class Plotter:
         self._close_plot(visualize, False, f"stability", "clustering", f"stability_k{k}", fig)
     
 
+    def _plot_heatmap_full(self, title, data, index, target_name, visualize, save, set_index):
+        
+        fig, _, _ = self._init_plot([None], title)
+        df = data.set_index('Column')[[index]] if set_index else data
+        
+        sns.heatmap(df, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': index})
+        plt.title(title)
+        self._close_plot(visualize, 
+                         save,
+                         f"p-value_heatmap_{target_name}", 
+                         "correlation", 
+                         f"p_heatmap_{target_name}", 
+                         fig)
+
+
     def plot_metadata_correlation(self, 
                                   p_matrix: pd.DataFrame, 
                                   chi2_matrix: pd.DataFrame, 
@@ -232,23 +250,10 @@ class Plotter:
         """
 
         title = "Chi-squared P-values Heatmap"
-        
-        fig, _, _ = self._init_plot([None], title)
-        sns.heatmap(p_matrix, annot=True, cmap='viridis', fmt=".2f", 
-                    cbar_kws={'label': '-log10(p-value)'})
-        plt.title(title)
-        self._close_plot(visualize, save, "p-values", "clustering", "metadata_correlation", fig)
-        
-        title = "Chi-squared values Heatmap"
 
-        fig, _, _ = self._init_plot([None], title)
+        self._plot_heatmap_full(title, p_matrix, '-log10(p-value)', 'metadata', visualize, save, False)
         
-        sns.heatmap(chi2_matrix, annot=True, cmap='coolwarm', fmt=".2f", 
-                    cbar_kws={'label': 'Chi-Squared values'})
-        
-        plt.title(title)
-
-        self._close_plot(visualize, save, "chi2", "clustering", "metadata_correlation", fig)
+        self._plot_heatmap_full(title.replace("P-", ""), chi2_matrix, 'Chi-squared', 'metadata', visualize, save, False)
         
 
     def plot_cramers_v(self,
@@ -257,64 +262,46 @@ class Plotter:
                        visualize: bool = True,
                        save: bool = False):
         
-        # P-value bar plot
-        title = f"P-value for each column compared to '{target_name}'"
+        fig = plt.figure(figsize=(20, 10)) # Regola la dimensione della figura secondo necessità
+        gs = fig.add_gridspec(2, 3) # Griglia con 2 righe e 3 colonne
 
-        fig, _, _ = self._init_plot([None], title)
-
-        sns.barplot(data, x='Column', y='P-value', color='blue')
-        plt.axhline(0.05, color='red', linestyle='--', label='P-value threshold (0.05)')
-        plt.title(title)
-        plt.xticks(rotation=45)
-        plt.legend()
+        # Plot 1: P-value bar plot
+        ax0 = fig.add_subplot(gs[0, :]) # La prima riga, che occupa tutte e 3 le colonne
+        sns.barplot(data=data, x='Column', y='P-value', color='blue', ax=ax0)
+        ax0.axhline(0.05, color='red', linestyle='--', label='P-value threshold (0.05)')
+        ax0.set_title(f"P-value for each column")
+        ax0.tick_params(axis='x', rotation=45)
+        ax0.legend()
+        ax0.set_xlabel("") # Remove x-label to reduce clutter
+        ax0.set_ylabel("P-value")
         
-        self._close_plot(visualize, 
-                         save, 
-                         f"p-value_barplot_{target_name}", 
-                         "correlation", 
-                         f"cramers_v_barplot_{target_name}", 
-                         fig)
-
-        # P-value heatmap
-        title = f"P-value Heatmap for '{target_name}'"
-        fig, _, _ = self._init_plot([None], title)
-        df_pvalue = data.set_index('Column')[['P-value']]
-        
-        sns.heatmap(df_pvalue, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': 'P-value'})
-        plt.title(title)
-        self._close_plot(visualize, 
-                         save,
-                         f"p-value_heatmap_{target_name}", 
-                         "correlation", 
-                         f"p_heatmap_{target_name}", 
-                         fig)
-        
-        # Chi-Squared Heatmap
-        title = f"Chi-Squared Heatmap for '{target_name}'"
-        fig, _, _ = self._init_plot([None], title)
+        # Prepare data for heatmaps
+        df_p_value = data.set_index('Column')[['P-value']]
         df_chi2 = data.set_index('Column')[['Chi-Squared']]
-        sns.heatmap(df_chi2, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': 'Chi-Squared values'})
-        plt.title(title)
+        df_cramers_v = data.set_index('Column')[['Cramers_V']]
+
+        # Plot 2: P-value Heatmap
+        ax1 = fig.add_subplot(gs[1, 0]) # Seconda riga, prima colonna
+        sns.heatmap(df_p_value, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'P-value'}, ax=ax1)
+        ax1.set_title(f"P-value Heatmap")
+
+        # Plot 3: Chi-Squared Heatmap
+        ax2 = fig.add_subplot(gs[1, 1]) # Seconda riga, seconda colonna
+        sns.heatmap(df_chi2, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'Chi-Squared'}, ax=ax2)
+        ax2.set_title(f"Chi-Squared Heatmap")
+
+        # Plot 4: Cramer's V Heatmap
+        ax3 = fig.add_subplot(gs[1, 2]) # Seconda riga, terza colonna
+        sns.heatmap(df_cramers_v, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': "Cramer's V"}, ax=ax3)
+        ax3.set_title(f"Cramer's V Heatmap")
+
+        # Close the entire figure
         self._close_plot(visualize, 
                          save, 
-                         f"chi2_heatmap_{target_name}", 
+                         f"cramers_v_analysis_{target_name.lower()}", 
                          "correlation", 
-                         f"chi_heatmap_{target_name}", 
+                         f"cramers_v_analysis_{target_name.lower()}", 
                          fig)
-
-        # Cramer's V Heatmap
-        title = f"Cramer's V Heatmap for '{target_name}'"
-        fig, _, _ = self._init_plot([None], title)
-        df_cramer = data.set_index('Column')[["Cramers_V"]]
-        sns.heatmap(df_cramer, annot=True, cmap='coolwarm', fmt=".10f", linewidths=0.5, cbar_kws={'label': "Cramer's V"})
-        plt.title(title)
-        self._close_plot(visualize, 
-                         save, 
-                         f"cramersv_heatmap_{target_name}", 
-                         "correlation", 
-                         f"cramersv_heatmap_{target_name}", 
-                         fig)
-
 
     def plot_DR(self, 
                 data: dict, 
@@ -456,8 +443,9 @@ class Plotter:
                         for k, v in data.items()
                         if v is not None and len(v) > 0}
 
-        assert len(valid_variances) > 0, \
-            f"Cannot create cumulative variance plot with not enough valid variances."
+        if len(valid_variances) < 1:
+            self.logger.warning("Cannot create cumulative variance plot with not enough valid variances")
+            return
         
         max_n = max(v.shape[0] for v in valid_variances.values())
 
@@ -536,9 +524,6 @@ class Plotter:
                 Whether to save the plot to disk.
                 
         """
-
-        assert isinstance(data, pd.DataFrame), \
-            f"data must be of type pd.DataFrame, got {type(data)}"
 
         fig, _, _ = self._init_plot([None], "LDA")
 

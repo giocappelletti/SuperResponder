@@ -16,7 +16,7 @@ from fileio.df_loader import dataloader
 from clustering.clustering import Clustering
 
 
-if __name__ == "__main__":
+def kmedoids_clustering():
 
     # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
@@ -45,3 +45,7 @@ if __name__ == "__main__":
 
     # Run clustering
     cluster_df = Clustering(clustering_config_path).kmedoids(scaled_taxa)
+
+
+if __name__ == "__main__":
+    kmedoids_clustering()

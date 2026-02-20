@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from sklearn.preprocessing import OrdinalEncoder 
+
 
 class Logger:
     """
@@ -53,13 +53,9 @@ class Logger:
         self.logger.error(message)
 
 
-    def debug(self, message):
-        self.logger.debug(message)
-
-
     def critical(self, message):
         self.logger.critical(message)
 
 
-# Create a single, module-level instance of the Logger
+# Create a single, module-level instance of the Logger with predefined init vars
 logger = Logger()

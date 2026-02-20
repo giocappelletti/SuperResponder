@@ -16,14 +16,12 @@ from fileio.df_loader import dataloader
 from clustering.clustering import Clustering
 
 
-if __name__ == "__main__":
+def pca_clustering():
 
     # Define file paths    
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
-    modenesi_dataset_path = os.path.join(project_root, 'datasets', 'splitted', 'Full', 'modenesi.csv')
     unifrac_dataset_path = os.path.join(project_root, 'datasets', 'unifrac', 'dm_588_bacteria_w_unifrac.tsv')
     dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
-    clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml')
 
     # Load reference dataset (Full)
     ref_dataset, ref_taxa_cols, _ = dataloader.load_dataset(dataset_path)
@@ -52,4 +50,8 @@ if __name__ == "__main__":
     )
     
     # Run PCA
-    _, _, = Clustering(clustering_config_path).pca_mds(distance_matrix_aligned, pca_type="pca")
+    fitted_pca, medoids, = Clustering().pca_mds(distance_matrix_aligned, pca_type="pca")
+
+
+if __name__ == "__main__":
+    pca_clustering()

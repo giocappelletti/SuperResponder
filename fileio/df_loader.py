@@ -93,7 +93,6 @@ class DataLoader:
             self.logger.warning(f"Could not sniff CSV delimiter for {os.path.basename(path)}. Defaulting to comma.")
             return ','
    
-   
     def _sanitize_raw_data(self, df: pd.DataFrame, drop_response = True, index: str = None):
         """
         Performs basic data sanitization (type conversion and indexing) based on the dataset type.
@@ -216,7 +215,10 @@ class DataLoader:
             serializer.cache_dataset(dataset, os.path.basename(base_name))
         
         if unifrac:
-            assert orig_dataset_path is not None, "orig_dataset_path must be provided if unifrac=True"
+            if orig_dataset_path is None:
+                self.logger.error("orig_dataset_path must be provided if unifrac=True")
+                raise ValueError
+            
             return self._load_unifrac(dataset, orig_dataset_path, index)
 
         if sanitize:

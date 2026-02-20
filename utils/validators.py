@@ -62,26 +62,34 @@ def validate_config(config: dict, section: str) -> dict:
     if "metric" in needed:
         params["metric"] = s_config.get('metric', 'euclidean')
         validate_config_param_type("metric", params["metric"], str)
-        assert params["metric"] in ['euclidean', 'braycurtis', 'unifrac'], \
-            f"Unsupported metric: {params['metric']}"
+        if params["metric"] not in ['euclidean', 'braycurtis', 'unifrac']:
+            logger.error(f"Unsupported metric: {params['metric']}")
+            raise ValueError()
 
     if "n_clusters" in needed:
         params["n_clusters"] = s_config.get('n_clusters', 20)
         validate_config_param_type("n_clusters", params["n_clusters"], int)
         min_val = 3 if section == "elbow_silhouette" else 2
-        assert params["n_clusters"] >= min_val, f"n_clusters must be >= {min_val}"
+        if params["n_clusters"] < min_val:
+            logger.warning(f"n_clusters must be >= {min_val}")
+            raise ValueError()
 
     if "k_values" in needed:
         params["k_values"] = s_config.get('k_values', [2])
         validate_config_param_type("k_values", params["k_values"], list)
         for k in params["k_values"]:
             validate_config_param_type("k", k, int)
-            assert k > 1, f"k must be > 1"
+            if k <= 1:
+                logger.warning(f"k must be > 1, got {k}")
+                raise ValueError()
 
     if "njobs" in needed:
         params["njobs"] = s_config.get('njobs', -1)
         validate_config_param_type("njobs", params["njobs"], int)
-        assert params["njobs"] >= -1, "njobs must be >= -1"
+        if params["njobs"] < -1:
+            logger.warning(f"njobs must be >= -1, got {params['njobs']}")
+            logger.warning("Setting njobs to -1")
+            params["njobs"] = -1
 
     if "save" in needed:
         params["save"] = s_config.get('save', True)
@@ -90,8 +98,9 @@ def validate_config(config: dict, section: str) -> dict:
     if "save_format" in needed:
         params["save_format"] = s_config.get('save_format', 'csv')
         validate_config_param_type("save_format", params["save_format"], str)
-        assert params["save_format"] in ['csv', 'tsv', 'xlsx'], \
-            f"Invalid save format: {params['save_format']}"
+        if params["save_format"] not in ['csv', 'tsv', 'xlsx']:
+            logger.error(f"Unsupported save format: {params['save_format']}")
+            raise ValueError()
 
     if "visualize" in needed:
         params["visualize"] = s_config.get('visualize', True)
@@ -100,17 +109,17 @@ def validate_config(config: dict, section: str) -> dict:
     if "n_components" in needed:
         params["n_components"] = s_config.get('n_components', 2)
         validate_config_param_type("n_components", params["n_components"], int)
-        assert params["n_components"] >= -1, \
-            "n_components must be a positive integer or -1 if all components are to be used"
-        if params["n_components"] == -1:
+        if params["n_components"] < -1:
+            logger.warning(f"n_components must be >= -1, got {params['n_components']}")
+            logger.warning("Using all components")
             params["n_components"] = None
     
-
     if "kernel" in needed:
         params["kernel"] = s_config.get('kernel', 'rbf')
         validate_config_param_type("kernel", params["kernel"], str)
-        assert params["kernel"] in ['linear', 'poly', 'rbf', 'sigmoid', 'cosine'], \
-            f"Unsupported kernel: {params['kernel']}"
+        if params["kernel"] not in ['linear', 'poly', 'rbf', 'sigmoid', 'cosine']:
+            logger.error(f"Unsupported kernel: {params['kernel']}")
+            raise ValueError()
     
     if "gamma" in needed:
         params["gamma"] = s_config.get('gamma', 'scale')
@@ -119,13 +128,16 @@ def validate_config(config: dict, section: str) -> dict:
     if "n_splits" in needed:
         params["n_splits"] = s_config.get('n_splits', 10)
         validate_config_param_type("n_splits", params["n_splits"], int)
-        assert params["n_splits"] > 1, "n_splits must be > 1"
+        if params["n_splits"] < 1:
+            logger.error(f"n_splits must be >= 1, got {params['n_splits']}")
+            raise ValueError()
     
     if "test_size" in needed:
         params["test_size"] = s_config.get('test_size', 0.2)
         validate_config_param_type("test_size", params["test_size"], float)
-        assert 0 <  params["test_size"] < 1, \
-            "test_size must be between 0 and 1 (excluded)"
+        if not 0 <  params["test_size"] < 1:
+            logger.error(f"test_size must be between 0 and 1 (excluded), got {params['test_size']}")
+            raise ValueError()
     
     if "shuffle" in needed:
         params["shuffle"] = s_config.get('shuffle', True)
@@ -170,16 +182,22 @@ def validate_config(config: dict, section: str) -> dict:
     if "max_iter" in needed:
         params["max_iter"] = s_config.get('max_iter', 1000)
         validate_config_param_type("max_iter", params["max_iter"], int)
-        assert params["max_iter"] > 0, "max_iter must be > 0"
+        if params["max_iter"] < 0:
+            logger.error(f"max_iter must be >= 0, got {params['max_iter']}")
+            raise ValueError()
 
     if "perplexity" in needed:
         params["perplexity"] = s_config.get('perplexity', 30)
         validate_config_param_type("perplexity", params["perplexity"], int)
-        assert params["perplexity"] > 0, "perplexity must be > 0"
+        if params["perplexity"] < 0:
+            logger.error(f"perplexity must be >= 0, got {params['perplexity']}")
+            raise ValueError()
 
     if "learning_rate" in needed:
         params["learning_rate"] = s_config.get('learning_rate', 'auto')
         validate_config_param_type("learning_rate", params["learning_rate"], int)
-        assert params["learning_rate"] > 0, "learning_rate must be > 0"
+        if params["learning_rate"] < 0:
+            logger.error(f"learning_rate must be >= 0, got {params['learning_rate']}")
+            raise ValueError()
 
     return params

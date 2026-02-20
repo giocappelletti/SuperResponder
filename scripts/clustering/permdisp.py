@@ -13,10 +13,11 @@ from skbio.stats.distance import permanova, permdisp
 from fileio.df_loader import dataloader
 from logger.logger import logger
 
-def main(): 
+
+def permdisp_clustering(): 
 
     # Load Dataset 
-    file_path = 'datasets/raw_dataset.csv' 
+    file_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv') 
 
     df, microbial_cols, meta_cols = dataloader.load_dataset(file_path, drop_response=False) 
 
@@ -76,4 +77,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    permdisp_clustering()

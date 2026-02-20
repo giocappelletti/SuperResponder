@@ -36,3 +36,14 @@ def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):
         contingency_prop  = contingency / summed
 
         return contingency_prop, chi2, p, summed, contingency.shape 
+
+
+def get_first_column_index(dataset: pd.DataFrame, start_column: str) -> int | None:
+    """
+    Returns the integer index of the first column that starts with start_column.
+    Returns None if no such column is found.
+    """
+    for i, col in enumerate(dataset.columns):
+        if col.startswith(start_column):
+            return i
+    return None

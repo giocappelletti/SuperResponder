@@ -1,6 +1,7 @@
-from typing import Literal
-import yaml
 import warnings
+import yaml
+from typing import Literal
+from collections import namedtuple
 
 import numpy as np
 import pandas as pd
@@ -9,10 +10,7 @@ from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score, adjusted_rand_score, fowlkes_mallows_score
 from sklearn.manifold import MDS
 from sklearn.model_selection import ShuffleSplit
-from skbio import DistanceMatrix
-from skbio.stats.ordination import pcoa
 from scipy.spatial.distance import cdist, pdist, squareform
-from scipy.stats import chi2_contingency
 
 from joblib import Parallel, delayed
 
@@ -52,6 +50,10 @@ class Clustering:
         except Exception as e:
             self.logger.error(f"Error loading config from file {self.config_path}: {e}")
 
+        # Define a namedtuple for _analysis return values
+        self.AnalysisResult = namedtuple('AnalysisResult', 
+                                         ['dataset', 'n_clusters', 'metric', 'save', 
+                                          'save_format', 'useless_metadata', 'visualize'])
 
     def _k_medoids_fit(self, data, n_clusters, metric, random_state):
         """
@@ -62,11 +64,12 @@ class Clustering:
         labels = kmedoids.fit_predict(data)
         return kmedoids, labels
 
-
-    def _run_single_k(self, n_clusters, data, metric, random_state, silhouette=False):
+    @staticmethod
+    def _run_single_k(n_clusters, data, metric, random_state, silhouette=False):
         """
         Runs K-Medoids for a single k value.
         """
+        # This method does not use 'self', so it can be a static method.
         kmedoids = KMedoids(n_clusters, metric, random_state=random_state).fit(data)
 
         if silhouette:
@@ -76,7 +79,7 @@ class Clustering:
         return kmedoids.medoid_indices_
     
 
-    def _analysis(self, data: np.ndarray, dataset: pd.DataFrame, resp_analisys=False):
+    def _analysis(self, data: np.ndarray, dataset: pd.DataFrame):
         """
         Read analysis data from file and computes k medoids.
         """
@@ -95,15 +98,14 @@ class Clustering:
         if metric == "braycurtis":
             data = squareform(pdist(data, metric='braycurtis'))
 
-
+        # Perform K-Medoids clustering
         _, labels = self._k_medoids_fit(data, n_clusters, distance, random_state)
 
         # Add cluster labels to dataset
         dataset = dataset.copy()
         dataset['cluster'] = labels
         
-        return dataset, n_clusters, distance, save, save_format, useless_metadata, visualize
-    
+        return self.AnalysisResult(dataset, n_clusters, distance, save, save_format, useless_metadata, visualize)
 
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
         """
@@ -228,11 +230,10 @@ class Clustering:
         if isinstance(dataset, str):
             dataset = self.dataloader.load_dataset(dataset)
 
-        dataset, n_clusters, metric, save, save_format, useless_metadata, \
-            visualize = self._analysis(data, dataset)
+        res = self._analysis(data, dataset)
 
 
-        if useless_metadata is None:
+        if res.useless_metadata is None:
             self.logger.info("Using all metedata columns") 
             categorical_meta = meta_cols
         
@@ -241,12 +242,12 @@ class Clustering:
 
             # Filter categorical metadata        
             categorical_meta = [
-                col for col in meta_cols if col not in useless_metadata
+                col for col in meta_cols if col not in res.useless_metadata
             ]
 
         # Clean categorical metadata
         for col in categorical_meta:
-            dataset[col] = dataset[col].astype(str).str.strip().str.capitalize()
+            res.dataset[col] = dataset[col].astype(str).str.strip().str.capitalize()
 
         # chi-quadro analysis and plots
         summary_results = []
@@ -255,16 +256,16 @@ class Clustering:
 
         for col in categorical_meta:
             
-            contingency, chi2, p, _, _ = compute_contingency(dataset, "cluster", col)
+            contingency, chi2, p, _, _ = compute_contingency(res.dataset, "cluster", col)
            
-            if save:
+            if res.save:
                 time_str = self.serializer.save_file(
                     data=contingency,
-                    subfolder=f"metadata_analysis/k_{n_clusters}_contingencies",
+                    subfolder=f"metadata_analysis/k_{res.n_clusters}_contingencies",
                     exp_type=f"{col}_contingency",
                     exp_group="clustering",
-                    save_format=save_format,
-                    distance_type=metric
+                    save_format=res.save_format,
+                    distance_type=res.metric
                 )
 
             # chi-squared test
@@ -274,18 +275,18 @@ class Clustering:
             contingencies.append(contingency)
             cols.append(col)
 
-        self.plotter._plot_contingencies(contingencies, cols, metric, visualize, save)
+        self.plotter._plot_contingencies(contingencies, cols, res.metric, res.visualize, res.save)
 
         summary_df = pd.DataFrame(summary_results)
 
-        if save:
+        if res.save:
             self.serializer.save_file(
                 data=summary_df,
-                subfolder=f"{time_str}/metadata_analysis/k_{n_clusters}",
+                subfolder=f"{time_str}/metadata_analysis/k_{res.n_clusters}",
                 exp_type="chi2_summary",
                 exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric,
+                save_format=res.save_format,
+                distance_type=res.metric,
                 should_save_time=False
             )
         
@@ -320,31 +321,28 @@ class Clustering:
         if isinstance(dataset, str):
             dataset = self.dataloader.load_dataset(dataset, drop_response=False, sanitize=False, index_col=0)
 
-        dataset, _, distance, save, save_format, _, \
-            visualize = self._analysis(data_matrix, dataset, resp_analisys=True)
+        res = self._analysis(data_matrix, dataset)
         
-        n_clusters = 2
+        if 'response' not in orig_dataset.columns:
+            self.logger.error("Response column not found in raw dataset")
 
-        assert "response" in orig_dataset.columns, \
-            "Response column not found in raw dataset!"
-
-        dataset['response'] = orig_dataset['response'].loc[dataset.index]
+        res.dataset['response'] = orig_dataset['response'].loc[res.dataset.index]
         
-        contingency, chi2, p, _, _ = compute_contingency(dataset, "cluster", "response")
+        contingency, chi2, p, _, _ = compute_contingency(res.dataset, "cluster", "response")
 
-        if save:
+        if res.save:
             self.serializer.save_file(
                 data=contingency,
-                subfolder=f"response_analysis/k_{n_clusters}_contingencies",
+                subfolder=f"response_analysis/k_{res.n_clusters}_contingencies",
                 exp_type=f"response_contingency",
                 exp_group="clustering",
-                save_format=save_format,
-                distance_type=distance
+                save_format=res.save_format,
+                distance_type=res.metric
             )
         
         self.logger.info(f"Response chi2: {chi2}, p-value: {p}")
 
-        self.plotter._plot_contingencies([contingency], ["response"], distance, visualize, save)
+        self.plotter._plot_contingencies([contingency], ["response"], res.metric, res.visualize, res.save)
 
         return contingency, chi2, p
 
@@ -388,12 +386,9 @@ class Clustering:
         distance = metric 
 
         if distance == "unifrac":
-            assert unifrac_dataframe is not None, \
-                "A Unifrac dataset must be passed to the function if Unifrac distance is used"
-            assert orig_dataframe is not None, \
-                "orig_dataframe must be passed to the function if Unifrac distance is used"
-            assert custom_dataframe is not None, \
-                "custom_dataframe must be passed to the function if Unifrac distance is used"
+            if unifrac_dataframe is None or orig_dataframe is None or custom_dataframe is None:
+                self.logger.error("unifrac distance requires unifrac_dataframe, orig_dataframe and custom_dataframe to be passed")
+                raise ValueError
 
         if unifrac_dataframe is not None and distance != "unifrac":
             self.logger.info("Unifrac Dataset was passed to the function, assuming Unifrac distance type")
@@ -473,8 +468,9 @@ class Clustering:
         ----------
             DimensionalityReduction.PCA, DimensionalityReduction.PCOA, DimensionalityReduction.KPCA
         """
-        assert pca_type in ['pca', 'pcoa', 'kpca'], \
-            f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}"
+        if pca_type not in ['pca', 'pcoa', 'kpca']:
+            self.logger.error(f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}")
+            raise ValueError
 
         params = validate_config(self.config, 'pca_mds')
         
@@ -492,8 +488,9 @@ class Clustering:
         dr = DimensionalityReduction()
 
         if distance == "euclidean":
-            assert pca_type in ['pca', 'pcoa'], \
-                f"pca_type must be either 'pca' or 'pcoa', got {pca_type}"
+            if pca_type not in ['pca', 'pcoa']:
+                self.logger.error(f"pca_type must be either 'pca' or 'pcoa' with euclidean distance, got {pca_type}")
+                raise ValueError
 
             if pca_type == 'pca':
                 fitted, _, _, pca = dr.PCA(data)
@@ -520,10 +517,9 @@ class Clustering:
             else:
                 self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'pcoa', got {pca_type}")
 
-
-        assert fitted is not None, \
-            f"Cannot compute results, check config file for possible problems.\n \
-            Using distance {distance} with pca_type {pca_type}"            
+        if fitted is None:
+            self.logger.error(f"Cannot compute results, check config file for possible problems.\n \
+            Using distance {distance} with pca_type {pca_type}")            
 
         medoids = []
         all_labels = []

@@ -16,7 +16,7 @@ from fileio.df_loader import dataloader
 from clustering.clustering import Clustering
 
 
-if __name__ == "__main__":
+def elbow_silhouette():
 
     # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
@@ -46,4 +46,6 @@ if __name__ == "__main__":
     # Compute elbow and silhouette scores
     inertia, silhouette = Clustering(clustering_config_path).compute_elbow_silhouette(scaled_taxa)
     
-    
+
+if __name__ == "__main__":
+    elbow_silhouette()

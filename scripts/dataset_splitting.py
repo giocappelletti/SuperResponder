@@ -7,21 +7,20 @@ project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-
 from utils.splitter import Splitter
 
-if __name__ == "__main__":
 
-    # Define file paths 
-    config_file = "config/split.yaml"
-    raw = "datasets/raw_dataset.csv"
-    genus = "datasets/genus_r.tsv"
+def split_dataset():
     
-    # Instance splitter object
-    splitter = Splitter(config=config_file)
+    # Define file paths 
+    raw_dataset = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
+    genus = os.path.join(project_root, 'datasets', 'genus_r.tsv')
+        
+    # Instance splitter object using deafult config file
+    splitter = Splitter()
 
     # Split raw dataset in train and test sets
-    train_set, test_set = splitter.split_train_test(raw)
+    train_set, test_set = splitter.split_train_test(raw_dataset)
 
     # Filter by cancer type (see config file)
     train_datasets = splitter.split_by_type(train_set, "train")
@@ -34,8 +33,9 @@ if __name__ == "__main__":
     genus_train, genus_test = splitter.split_train_test(genus)
     
     # Collapse datasets
-    train = splitter.collapse(genus_train, raw, "train_collapse")
-    test = splitter.collapse(genus_test, raw, "test_collapse")
+    train = splitter.collapse(genus_train, raw_dataset, "train_collapse")
+    test = splitter.collapse(genus_test, raw_dataset, "test_collapse")
 
 
-    
+if __name__ == "__main__":
+    split_dataset()

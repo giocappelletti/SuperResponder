@@ -17,22 +17,20 @@ from dimensionality_reduction.dimensionality_reduction import DimensionalityRedu
 from visualization.plotting import plotter
 
 
-if __name__ == "__main__":
+def dimensionality_reduction():
     
     # Define file paths
-    dataset_path = "datasets/raw_dataset.csv"
-    split_config_file = "config/split.yaml"
-    dim_config_file = "config/dimensionality_reduction.yaml"
+    dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     
-    # Instance Splitter 
-    splitter = Splitter(config=split_config_file)
+    # Instance Splitter with default conf file
+    splitter = Splitter()
 
-    # Scalers must be fitted on different dataset, thus using two objects avoids mixing the classes' internal states
+    # Scalers must be fitted on different dataset, thus use two objects to avoid mixing the classes' internal states
     full_scaler = SmartScaler()
     split_scaler = SmartScaler()
     
-    # Instance dimensionality reduction class
-    dim_red = DimensionalityReduction(config_path=dim_config_file)
+    # Instance dimensionality reduction class using default conf file
+    dim_red = DimensionalityReduction()
     
     # Convert labels from categorical to numerical values, e.g. Responder/Non-Responder becomes 0/1
     le = LabelEncoder()
@@ -40,7 +38,6 @@ if __name__ == "__main__":
     # Used to gather all results -> build a single window with multiple plots
     data = {}
     cumulative_vars = {}
-
 
     # Load Dataset, drop response and sanitize
     raw_dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False, sanitize=True)
@@ -127,4 +124,5 @@ if __name__ == "__main__":
     plotter.plot_LDA(dataframe, transform_method="CLR")
 
 
-
+if __name__ == "__main__":
+    dimensionality_reduction()

@@ -119,8 +119,9 @@ class DimensionalityReduction:
         params = validate_config(self.config, 'pcoa')
         distance = params['metric'] if distance is None else distance
         
-        assert distance in ['braycurtis', 'jensenshannon'], \
-            f"Distance must be either 'braycurtis' or 'jensenshannon', got {distance}"
+        if distance not in ['braycurtis', 'jensenshannon']:
+            self.logger.error(f"Distance must be either 'braycurtis' or 'jensenshannon', got {distance}")
+            raise ValueError
 
         data = squareform(pdist(data, metric=distance))
 

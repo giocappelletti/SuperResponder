@@ -16,7 +16,7 @@ from fileio.df_loader import dataloader
 from clustering.clustering import Clustering
 
 
-if __name__ == "__main__":
+def stability_analysis():
 
     # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
@@ -48,3 +48,7 @@ if __name__ == "__main__":
 
     # Run stability analysis
     ari_results, fm_results, ari_matrix, fm_matrixc = clustering.cluster_stability_ari_fm(scaled_ref_taxa)
+
+
+if __name__ == "__main__":
+    stability_analysis()

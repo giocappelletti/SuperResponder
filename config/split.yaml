@@ -8,7 +8,7 @@ split:
   stratify: 'response'
 
 type_split:
-  save: True
+  save: False
   save_format: 'csv'
   path: 'datasets/split/'
   column_types:
@@ -18,7 +18,7 @@ type_split:
       - 'RCC'
 
 collapse:
-  save: True
+  save: False
   save_format: 'csv'
   path: 'datasets/split/'
   sort_by: 'response'

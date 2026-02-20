@@ -21,10 +21,10 @@ class SmartScaler:
         self.logger = logger
         
         self.transformer = transformer()
-        self.logger.info(f"Scaler: Using transformer {self.transformer}")
+        self.logger.info(f"Scaler: Using transformer {self.transformer!r}")
         
         self.scaler = scaler(with_mean=False, with_std=False)
-        self.logger.info(f"Scaler: Using scaler {self.scaler}")
+        self.logger.info(f"Scaler: Using scaler {self.scaler!r}") 
     
 
     def fit_transform(self, data: pd.DataFrame):

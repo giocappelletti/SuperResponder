@@ -10,8 +10,8 @@ if project_root not in sys.path:
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from dataTransformers.data_transformers import CLRTransformer
-from dataTransformers.scaler import SmartScaler
+from preprocessing.data_transformers import CLRTransformer
+from preprocessing.scaler import SmartScaler
 from preprocessing.preprocess import Preprocessor
 from fileio.df_loader import dataloader
 from clustering.clustering import Clustering

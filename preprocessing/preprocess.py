@@ -5,10 +5,11 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
-from dataTransformers.data_transformers import CLRTransformer
+from .data_transformers import CLRTransformer
 from logger.logger import logger
 from utils.utils import format_pipeline
 from utils.validators import validate_config
+
 
 class Preprocessor:
     """

@@ -1,0 +1,19 @@
+cross_val:
+  classifier: 'LogisticRegression'
+  transformation: 'CLRTransformer'
+  scaler: 'StandardScaler'
+  n_splits: 2
+  random_state: 42
+  save: False
+  visualize: True
+  njobs: -1
+  scorings: 
+    - accuracy 
+    - precision
+    - recall
+    - f1
+    - roc_auc
+  param_grid:
+    "classifier__l1_ratio": "[0]"
+    "classifier__C": "np.logspace(-3, 3, 10)"
+    "classifier__random_state": "[42]"

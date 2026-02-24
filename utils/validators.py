@@ -199,5 +199,32 @@ def validate_config(config: dict, section: str) -> dict:
         if params["learning_rate"] < 0:
             logger.error(f"learning_rate must be >= 0, got {params['learning_rate']}")
             raise ValueError()
+    
+    if "classifier" in needed:
+        params["classifier"] = s_config.get('classifier', None)
+        if params["classifier"] not in ['LogisticRegression', 'RidgeClassifier', 'SVC', 'MLPClassifier']:
+            logger.error(f"Unsupported model: {params['classifier']}")
+            raise ValueError()
+
+    if "transformation" in needed:
+        params["transformation"] = s_config.get('transformation', None)
+        if params["transformation"] not in ['CLRTransformer', 'TSSTransformer']:
+            logger.error(f"Unsupported transformation: {params['transformation']}")
+            raise ValueError()
+
+    if "scaler" in needed:
+        params["scaler"] = s_config.get('scaler', None)
+        if params["scaler"] not in ['StandardScaler', 'MinMaxScaler', 'RobustScaler']:
+            logger.error(f"Unsupported scaler: {params['scaler']}")
+            raise ValueError()
+
+    if "param_grid" in needed:
+        params["param_grid"] = s_config.get('param_grid', None)
+        validate_config_param_type("param_grid", params["param_grid"], dict)
+
+    if "scorings" in needed:
+        params["scorings"] = s_config.get('scorings', None)
+        validate_config_param_type("scorings", params["scorings"], list)
+
 
     return params

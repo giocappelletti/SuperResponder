@@ -12,7 +12,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from utils.splitter import Splitter
 from fileio.df_loader import dataloader
-from dataTransformers.scaler import SmartScaler
+from preprocessing.scaler import SmartScaler
 from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
 from visualization.plotting import plotter
 

@@ -5,8 +5,6 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from skbio.stats.composition import clr, multi_replace
 from sklearn.cross_decomposition import PLSRegression
 
-from fileio.df_loader import dataloader
-
 
 class CLRTransformer(BaseEstimator, TransformerMixin):
     """

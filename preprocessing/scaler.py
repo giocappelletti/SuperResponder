@@ -1,7 +1,8 @@
-from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
-from dataTransformers.data_transformers import CLRTransformer
+from sklearn.preprocessing import StandardScaler
+from preprocessing.data_transformers import CLRTransformer
+
 from logger.logger import logger
 
 
@@ -21,10 +22,10 @@ class SmartScaler:
         self.logger = logger
         
         self.transformer = transformer()
-        self.logger.info(f"Scaler: Using transformer {self.transformer!r}")
+        self.logger.info(f"Scaler: Using transformer {self.transformer.__class__.__name__}")
         
         self.scaler = scaler(with_mean=False, with_std=False)
-        self.logger.info(f"Scaler: Using scaler {self.scaler!r}") 
+        self.logger.info(f"Scaler: Using scaler {self.scaler.__class__.__name__}") 
     
 
     def fit_transform(self, data: pd.DataFrame):

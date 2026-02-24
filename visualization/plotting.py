@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn.metrics import ConfusionMatrixDisplay
 
 from logger.logger import logger
 from utils.utils import sanitize_filename
@@ -551,6 +552,131 @@ class Plotter:
         plt.title(f'Linear Discriminant Analysis ({transform_method.upper()})')
         
         self._close_plot(visualize, save, "LDA", "clustering", "LDA", fig)
+
+
+    def _plot_confusion_matrix(self, confusion_matrix, visualize, save):
+        """
+        Plots a confusion matrix.
+        """
+        fig, ax, _ = self._init_plot([None], "Confusion Matrix")
+
+        ConfusionMatrixDisplay(confusion_matrix=confusion_matrix).plot(ax=ax[0])
+        ax[0].set_title("Confusion Matrix")
+       
+        self._close_plot(True, False, "confusion_matrix", "classification", "confusion_matrix", fig)
+        
+
+    def _plot_confusion_matrices(self,
+                                y_true_train, y_pred_train,
+                                y_true_val, y_pred_val,
+                                model_name,
+                                val_set_name="Validation",
+                                visualize=True,
+                                save=False):
+        """
+        Plots confusion matrices for training and validation/CV sets.
+        """
+        fig, axes, _ = self._init_plot([None, None], f"Confusion Matrices for {model_name}")
+
+        # Train Confusion Matrix
+        ConfusionMatrixDisplay.from_predictions(y_true_train, y_pred_train, ax=axes[0], cmap='Blues')
+        axes[0].set_title('Train Set')
+
+        # Validation/CV Confusion Matrix
+        if y_true_val is not None and y_pred_val is not None:
+            ConfusionMatrixDisplay.from_predictions(y_true_val, y_pred_val, ax=axes[1], cmap='Blues')
+            axes[1].set_title(f'{val_set_name} Set')
+        else:
+            # Hide the second subplot if no validation data
+            fig.delaxes(axes[1])
+
+        self._close_plot(visualize, save, f"confusion_matrix_{model_name}", "classification", model_name, fig)
+
+
+    def _plot_metrics_comparison(self, metrics_df: pd.DataFrame, model_name: str, visualize=True, save=False):
+        """
+        Plots a bar chart comparing different performance metrics.
+        """
+        fig, ax, _ = self._init_plot([None], f"Metrics Comparison for {model_name}")
+
+        metrics_df.plot(kind='bar', ax=ax[0])
+        ax[0].set_title(f'Train vs. Validation/CV Metrics')
+        ax[0].set_xlabel('Metric')
+        ax[0].set_ylabel('Score')
+        ax[0].set_ylim(0, 1)
+        ax[0].tick_params(axis='x', rotation=45)
+        ax[0].grid(True, linestyle='--', alpha=0.6)
+
+        self._close_plot(visualize, save, f"metrics_comparison_{model_name}", "classification", model_name, fig)
+
+
+    def _plot_roc_curves(self,
+                        fpr_train, tpr_train, auc_train,
+                        cv_results: dict = None,
+                        model_name: str = "Model",
+                        visualize: bool = True,
+                        save: bool = False):
+        """
+        Plots ROC curves for training and optionally for cross-validation results.
+        """
+
+        fig, ax, _ = self._init_plot([None], f"ROC Curve for {model_name}")
+
+        # Train ROC Curve        
+        ax[0].plot(fpr_train, tpr_train, label=f'Train (AUC = {auc_train:.2f})', lw=2)
+
+        # CV ROC Curve
+        if cv_results:
+            mean_fpr = cv_results.get('mean_fpr')
+            mean_tpr = cv_results.get('mean_tpr')
+            mean_auc = cv_results.get('mean_auc')
+            std_auc = cv_results.get('std_auc')
+            if all(v is not None for v in [mean_fpr, mean_tpr, mean_auc, std_auc]):
+                ax[0].plot(mean_fpr, mean_tpr, lw=2, label=f'Cross-Val (AUC = {mean_auc:.2f} ± {std_auc:.2f})')
+
+        ax[0].plot([0, 1], [0, 1], 'k--', lw=1, label='Random Chance')
+        ax[0].set_xlabel('False Positive Rate')
+        ax[0].set_ylabel('True Positive Rate')
+        ax[0].set_title('ROC Curve')
+        ax[0].legend(loc='lower right')
+        ax[0].grid(True, linestyle='--', alpha=0.6)
+
+        self._close_plot(visualize, save, f"roc_curve_{model_name}", "classification", model_name, fig)
+
+
+    def _plot_pr_curves(self,
+                       recall_train, precision_train, ap_train, baseline,
+                       cv_results: dict = None,
+                       model_name: str = "Model",
+                       visualize: bool = True,
+                       save: bool = False):
+        """
+        Plots Precision-Recall curves for training and optionally for cross-validation results.
+        """
+        fig, ax, _ = self._init_plot([None], f"Precision-Recall Curve for {model_name}")
+
+        # Train PR Curve
+        
+        ax[0].plot(recall_train, precision_train, label=f'Train (AP = {ap_train:.2f})')
+
+        # CV PR Curve
+        if cv_results:
+            mean_recall = cv_results.get('mean_recall')
+            mean_precision = cv_results.get('mean_precision')
+            mean_ap = cv_results.get('mean_ap')
+            if all(v is not None for v in [mean_recall, mean_precision, mean_ap]):
+                ax[0].plot(mean_recall, mean_precision, label=f'Cross-Val (AP = {mean_ap:.2f})', lw=2)
+
+        ax[0].plot([0, 1], [baseline, baseline], linestyle='--', color='gray', label=f'Baseline ({baseline:.2f})')
+        ax[0].set_xlabel('Recall')
+        ax[0].set_ylabel('Precision')
+        ax[0].set_title('Precision-Recall Curve')
+        ax[0].legend()
+        ax[0].grid(linestyle='--', alpha=0.5)
+        ax[0].set_xlim([0.0, 1.0])
+        ax[0].set_ylim([0.0, 1.05])
+
+        self._close_plot(visualize, save, f"pr_curve_{model_name}", "classification", model_name, fig)
 
 
 # One time initialization of plotter object

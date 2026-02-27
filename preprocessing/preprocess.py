@@ -62,7 +62,7 @@ class Preprocessor:
         )
 
 
-    def initialize(self, complete_df: pd.DataFrame, use_metadata=True, taxa_cols: list = None) -> tuple:
+    def initialize(self, complete_df: pd.DataFrame, use_metadata: bool = True, taxa_cols: list = None) -> tuple:
         """
         Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
         
@@ -122,7 +122,7 @@ class Preprocessor:
         return dataframe
 
 
-    def _build_preprocessor_engine(self, categorical_features, ordinal_features, 
+    def _build_column_transformer(self, categorical_features, ordinal_features, 
                                    numeric_features, compositional_features):
         """
         Internal method to construct the Scikit-learn ColumnTransformer engine.
@@ -189,10 +189,10 @@ class Preprocessor:
         # 1. Handle missing values explicitly (returns a new DF)
         X_prepared = self._fillna_metadata(X_dataset, useless_metadata)
         
-        # 2. Build the transformer engine
-        engine = self._build_preprocessor_engine(cat_f, ord_f, num_f, comp_f)
+        # 2. Build column tansformer
+        col_transf = self._build_column_transformer(cat_f, ord_f, num_f, comp_f)
 
-        return X_prepared, engine
+        return X_prepared, col_transf
 
 
-    
+preprocessor = Preprocessor()

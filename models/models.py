@@ -1,5 +1,7 @@
 
 import time
+import joblib
+from sklearn.cross_decomposition import PLSRegression
 import yaml
 import numpy as np
 import pandas as pd
@@ -7,15 +9,19 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, average_precision_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve, precision_recall_curve, auc, confusion_matrix
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_validate
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression, RidgeClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from scipy.stats import mode
 
 
 from logger.logger import logger
 from utils.validators import validate_config
+from fileio.serialization import serializer
 from visualization.plotting import plotter
-from preprocessing.data_transformers import CLRTransformer
-
+from preprocessing.data_transformers import CLRTransformer, TSSTransformer
+from preprocessing.preprocess import preprocessor
 
 class Models:
     """
@@ -35,7 +41,8 @@ class Models:
                             train_labels: pd.Series,
                             val_data: pd.DataFrame = None, 
                             val_labels: pd.Series = None, 
-                            verbose: int = 1):
+                            verbose: int = 1,
+                            pipeline: Pipeline = None):
         """
         Evaluates a model using cross-validation.
         If param_grid is passed, computes GridSearchCV on train_data/train_labels.
@@ -87,11 +94,12 @@ class Models:
 
         splits_label = 'val' if (val_data is not None and val_labels is not None) else f'{n_splits}-fold CV'
 
-        pipeline = Pipeline([
-            ('transformation', eval(transformation)()),
-            ('scaler', eval(scaler)()),
-            ('classifier', eval(classifier)())
-        ])
+        if pipeline is None:
+            pipeline = Pipeline([
+                ('transformation', eval(transformation)()),
+                ('scaler', eval(scaler)()),
+                ('classifier', eval(classifier)())
+            ]) 
 
         # Grid search / fit
         if param_grid is not None:
@@ -312,7 +320,9 @@ class Models:
             f"{float(chosen_split_metrics.get('roc_auc', 0)):.2f}" # Use 'roc_auc' key
         ]
 
-        metrics_df = pd.DataFrame([results['metrics']['train'], results['metrics'][splits_label]], index=['Train', splits_label]).T
+        metrics_df = pd.DataFrame([results['metrics']['train'], 
+                                   results['metrics'][splits_label]], 
+                                   index=['Train', splits_label]).T
 
 
         # 1. Plot Metrics Comparison
@@ -337,18 +347,23 @@ class Models:
             fpr_train, tpr_train, _ = roc_curve(train_labels, y_train_proba)
             auc_train = roc_auc_score(train_labels, y_train_proba)
 
+        # Cross validation roc curves
         cv_roc_results = None
         if interp_truepos_list:
+            # Ensure roc_aucs is not empty before calculating mean and std
             cv_roc_results = {
                 'mean_fpr': mean_fpr,
                 'mean_tpr': mean_tpr,
-                'mean_auc': np.mean(roc_aucs) if roc_aucs else None,
+                'mean_auc': np.mean(roc_aucs) if roc_aucs else 0.0, # Default to 0.0 if empty
                 'std_auc': np.std(roc_aucs) if roc_aucs else None
             }
         
         if fpr_train is not None or cv_roc_results is not None:
-            plotter._plot_roc_curves(
-                fpr_train, tpr_train, auc_train,
+            plotter._plot_performance_curves(
+                curve_type='roc',
+                x_data=fpr_train,
+                y_data=tpr_train,
+                metric_train_value=auc_train,
                 cv_results=cv_roc_results,
                 model_name=classifier,
                 visualize=visualize,
@@ -362,21 +377,230 @@ class Models:
             ap_train = average_precision_score(train_labels, y_train_proba)
             baseline = np.sum(train_labels == 1) / len(train_labels)
 
+        # Cross validation precision recall and ap
         cv_pr_results = None
         if prec_rec:
             cv_pr_results = {
                 'mean_recall': mean_recall,
                 'mean_precision': np.mean(prec_rec, axis=0),
-                'mean_ap': np.mean(roc_aucs) if roc_aucs else None # Using roc_aucs as a proxy for AP for now
+                'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0 # Using roc_aucs as a proxy for AP for now
             }
 
         if precision_train is not None or cv_pr_results is not None:
-            plotter._plot_pr_curves(
-                recall_train, precision_train, ap_train, baseline,
+            plotter._plot_performance_curves(
+                curve_type='pr',
+                x_data=recall_train,
+                y_data=precision_train,
+                metric_train_value=ap_train,
+                baseline_value=baseline,
                 cv_results=cv_pr_results,
                 model_name=classifier,
                 visualize=visualize,
                 save=save
             )
 
+        if save:
+            serializer.save_file(results,
+                                 "classifier_results",
+                                 classifier,
+                                 "model_evaluation",
+                                 "json")
+            serializer.save_file(best_model,
+                                 "classifier_results",
+                                 classifier,
+                                 "model_evaluation",
+                                 "pkl")
+            serializer.save_file(metrics_df,
+                                 "classifier_results",
+                                 classifier,
+                                 "model_evaluation",
+                                 "csv")
+
         return best_model, results, metrics_df, data_values
+    
+
+    def hard_voting_ensemble(self, 
+                             models: list, 
+                             X_set: pd.DataFrame, 
+                             Y_set: pd.Series,
+                             labels: list, 
+                             compute_roc: bool = True, 
+                             taxa_cols: list = None,
+                             visualize: bool = True,
+                             save: bool = False):
+        """
+        Performs hard voting ensemble on the given models and dataset.
+        
+        Parameters
+        ----------
+        models: list
+            List of paths to fitted models saved as pkl files.
+        X_set: pd.DataFrame
+            Features for prediction
+        Y_set: pd.Series
+            True labels
+        labels:
+            List of mapped labels from LabelEncoder output
+        compute_roc: bool, default=True
+            Whether to compute and plot ROC/PR curves
+        taxa_cols: list, optional
+            List of taxa columns to filter X_set if necessary
+        visualize: bool, default True
+            Wether to visualize plots
+        save: bool, default False
+            Wether to save results and plots to disk
+
+        Returns
+        -------
+        metrics: dict
+            Dictionary containing accuracy, precision, recall, and f1.
+        """
+
+        pred_list = []
+        proba_list = []
+        for path in models:
+            try:
+                model = joblib.load(path)
+                self.logger.info(f"Loaded model from {path}")
+
+            except Exception as e:
+                self.logger.error(f"Unable to load model from {path}: {e}")
+                raise e
+
+            X_train_full, _ = preprocessor.initialize(
+                X_set,
+                taxa_cols
+            )
+
+            X_train = X_train_full[taxa_cols]
+            
+            pred_list.append(model.predict(X_train))
+            
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(X_train)
+                proba_list.append(proba)
+            else:
+                decision = lambda X: 1 / (1 + np.exp(-model.decision_function(X)))
+                probs = np.vstack([1 - decision(X_train), decision(X_train)]).T
+                proba_list.append(probs)
+
+        pred_array = np.vstack(pred_list)  # shape: (n_models, n_examples)
+        final_pred, _ = mode(pred_array, axis=0)  # scipy.stats.mode
+        final_pred = final_pred.flatten()
+
+        avg_proba = np.mean(np.stack(proba_list, axis=0), axis=0)  # (n_examples, n_classes)
+
+        self.logger.info(f"Computing models metrics")
+        acc = accuracy_score(Y_set, final_pred)
+        prec = precision_score(Y_set, final_pred, average='binary')
+        rec = recall_score(Y_set, final_pred, average='binary')
+        f1 = f1_score(Y_set, final_pred, average='binary')
+        roc_auc = roc_auc_score(Y_set, avg_proba[:, 1]) if compute_roc else "---"
+
+        cm = confusion_matrix(Y_set, final_pred)
+
+        metrics = {'Accuracy': acc, 'Precision': prec, 'Recall': rec, 'F1-score': f1}
+        if compute_roc:
+            metrics['roc_auc'] = roc_auc
+
+        df_barplot = pd.DataFrame(list(metrics.items()), columns=['Metric', 'Value'])
+
+        confidences = np.max(avg_proba, axis=1)
+
+        correct = (final_pred == Y_set)
+        df_conf = pd.DataFrame({'confidence': confidences, 'correct': correct})
+
+        plotter._plot_models_metrics(cm,
+                                     df_barplot,
+                                     confidences,
+                                     df_conf,
+                                     labels,
+                                     "ensemble",
+                                     visualize,
+                                     save
+                                     )
+
+        if compute_roc:
+            fpr, tpr, _ = roc_curve(Y_set, avg_proba[:, 1])
+            precision, recall, _ = precision_recall_curve(Y_set, avg_proba[:, 1])
+            roc_auc = roc_auc_score(Y_set, avg_proba[:, 1])
+            pr_auc = auc(recall, precision)
+        
+            plotter._plot_performance_curves(curve_type='roc',
+                                  x_data=fpr, 
+                                  y_data=tpr, 
+                                  metric_train_value=roc_auc, 
+                                  visualize=visualize, 
+                                  save=save)
+            plotter._plot_performance_curves(curve_type='pr',
+                                 x_data=recall, 
+                                 y_data=precision, 
+                                 metric_train_value=pr_auc,
+                                 baseline_value=(sum(Y_set) / len(Y_set)),
+                                 visualize=visualize, 
+                                 save=save)
+
+
+    def pls_feature_importance(self,
+                               dataset: pd.DataFrame,
+                               X_train: pd.DataFrame,
+                               taxa_cols: list,
+                               n_components: int = 260,
+                               head: int = 25,
+                               visualize: bool = True,
+                               save: bool = False):
+        """
+        Computes feature importance using PLS regression and VIP scores.        
+        
+        Parameters
+        ----------
+        dataset: pd.DataFrame
+            The original dataset containing the target 'response'.
+        X_train: pd.DataFrame
+            The processed training features (used for column names).
+        taxa_cols: list
+            List of taxonomic feature names.
+        n_components: int, default 260
+            Number of components for PLS regression.
+
+        Returns
+        -------
+        vip_df: pd.DataFrame
+            DataFrame containing all features and their corresponding VIP scores.
+        vip_top25: pd.DataFrame
+            DataFrame containing the top 25 features by VIP score.
+        """
+
+        self.logger.info("Computing PLS feature importance")
+
+        # Encode the response variable to numerical format
+        le = LabelEncoder()
+        y_encoded = le.fit_transform(dataset['response'])
+        dataset_TSS = dataset[taxa_cols].div(dataset[taxa_cols].sum(axis=1), axis=0)
+
+        self.logger.info("Fitting PLS regression")
+        pls = PLSRegression(n_components=n_components) #260 because 252 cover 90% of variance
+        _, _ = pls.fit_transform(dataset_TSS, y_encoded) 
+
+        W = pls.x_weights_   # Shape: (n_features, n_components)
+        Q = pls.y_loadings_  # Shape: (n_targets, n_components)
+        T = pls.x_scores_    # Projection, Shape: (n_samples, n_components)
+
+        # Compute SSY for every component
+        SSY_h = np.sum((T**2) * np.sum(Q**2, axis=0), axis=0)
+        total_SSY = np.sum(SSY_h)
+
+        K = W.shape[0]  # Number of features (K)
+        A = W.shape[1]  # Number of components (A)
+        
+        self.logger.info("Computing VIP scores")
+        vip_scores = np.sqrt((K / A) * np.sum((W**2) * SSY_h, axis=1) / total_SSY)
+        
+        vip_df = pd.DataFrame({
+            'feature': X_train.columns,
+            'VIP': vip_scores
+        }).sort_values('VIP', ascending=False)
+
+        vip_top25 = vip_df.head(head)
+
+        plotter._plot_feature_importance(vip_top25, visualize, save)

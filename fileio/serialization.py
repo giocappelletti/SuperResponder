@@ -1,5 +1,7 @@
 import os
 import time
+import json
+import joblib
 from typing import Literal
 import pandas as pd
 
@@ -23,6 +25,7 @@ class Serialization:
         self.cache_dir = cache_dir
         self.logger = logger
 
+
     def cache_dataset(self, dataset: pd.DataFrame, path: str):
         """
         Save optimized feather file for next usage.
@@ -39,11 +42,12 @@ class Serialization:
         except Exception as e:
             self.logger.warning(f"Failed to cache dataset to {path}: {e}")
 
+
     def write_to_disk(self, 
-                      data: pd.DataFrame, 
-                      path: str, 
-                      save_format: Literal['csv', 'tsv', 'xlsx'],
-                      index: bool = True):
+                      data,
+                      path, 
+                      save_format,
+                      index = True):
         """
         Write results to file.
         """
@@ -57,17 +61,31 @@ class Serialization:
             
             elif save_format == "xlsx":
                 data.to_excel(f"{path}.{save_format}", index=index)
-        
+            
+            elif save_format == "json":
+                if not isinstance(data, dict):
+                    self.logger.error("Cannot save non-dict data as JSON")
+                    return
+                
+                json.dump(data, open(f"{path}.{save_format}", "w"), indent=4)
+            
+            elif save_format == "pkl":
+                joblib.dump(data, f"{path}.{save_format}")
+            
+            else:
+                self.logger.error(f"Unsupported file format: {save_format}")
+                raise ValueError()
+            
         except Exception as e:                                                                                          
             self.logger.error(f"Error saving file: {e}")
 
 
     def save_file(self, 
-                  data: pd.DataFrame, 
+                  data, 
                   subfolder: str, 
                   exp_type: str, 
                   exp_group: str, 
-                  save_format: Literal['csv', 'tsv', 'xlsx'],
+                  save_format: Literal['csv', 'tsv', 'xlsx', 'json', 'pkl'],
                   distance_type: str = None,
                   should_save_time=True) -> str | None:
         """
@@ -75,13 +93,21 @@ class Serialization:
 
         Parameters
         ----------
-            data (pd.DataFrame): Data to save.
-            subfolder (str): Subfolder to save the results.
-            exp_type (str): Experiment type.
-            exp_group (str): Experiment group.
-            save_format (str): File type.
-            distance_type (str): Distance type used in experiment.
-            should_save_time (bool, default=True): If timestamp should be saved.
+            data: pd.DataFrame or dict or trained model
+                Data to save.
+            subfolder: str
+                Subfolder to save the results.
+            exp_type: str
+                Experiment type.
+            exp_group: str
+                Experiment group.
+            save_format: str
+                File type. Supported file types are csv, tsv, xlsx, for pandas dataframes,
+                json for dicts and pkl for trained models.
+            distance_type: str
+                Distance type used in experiment.
+            should_save_time: bool, default=True
+                If timestamp should be saved.
         Returns
         ----------
             Timestamp or None

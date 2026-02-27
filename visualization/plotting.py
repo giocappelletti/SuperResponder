@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Literal
 import warnings
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
@@ -77,12 +78,12 @@ class Plotter:
         return fig, axes.flatten(), num_values
     
 
-    def _close_plot(self, visualize, save, metric_name, subfolder, exp_name, fig):
+    def _close_plot(self, visualize, save, metric_name, subfolder, exp_name, fig, tight_layout=True):
         """
         Sets tight layout and closes the current plot.
         """
-
-        fig.tight_layout(h_pad=2, w_pad=2) # Operate on the specific figure
+        if tight_layout:
+            fig.tight_layout(h_pad=2, w_pad=2) # Operate on the specific figure
 
         if visualize:
             self.logger.info("Displaying plot")
@@ -214,18 +215,76 @@ class Plotter:
         self._close_plot(visualize, False, f"stability", "clustering", f"stability_k{k}", fig)
     
 
-    def _plot_heatmap_full(self, title, data, index, target_name, visualize, save, set_index):
+    def _plot_heatmap_full(self, 
+                           title, 
+                           data, 
+                           target_name, 
+                           visualize, 
+                           save, 
+                           set_index=None, 
+                           index=None, 
+                           fmt=".2f", 
+                           labels=None):
         
         fig, _, _ = self._init_plot([None], title)
         df = data.set_index('Column')[[index]] if set_index else data
         
-        sns.heatmap(df, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': index})
+        sns.heatmap(df, 
+                    annot=True, 
+                    cmap='coolwarm', 
+                    fmt=fmt, 
+                    linewidths=0.5, 
+                    cbar_kws={'label': index}, 
+                    xticklabels=labels, 
+                    yticklabels=labels)
         plt.title(title)
         self._close_plot(visualize, 
                          save,
-                         f"p-value_heatmap_{target_name}", 
-                         "correlation", 
-                         f"p_heatmap_{target_name}", 
+                         f"heatmap_{target_name}", 
+                         "heatmap", 
+                         f"heatmap_{target_name}", 
+                         fig)
+
+
+    def _plot_barplot(self, title, data, x, y, ylim, model_name, visualize, save):
+        
+        fig, _, _ = self._init_plot([None], title)
+        sns.barplot(data=data, x=x, y=y, color='blue')
+        plt.ylim(ylim)
+        self._close_plot(visualize,
+                         save,
+                         f"barplot_{model_name}",
+                         "models",
+                         f"barplot_{model_name}",
+                         fig)
+
+    
+    def _plot_histplot(self, title, data, bins, xlabel, ylabel, model_name, visualize, save):
+
+        fig, _, _ = self._init_plot([None], title)
+        sns.histplot(data, bins=bins, kde=True, color='skyblue')
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        self._close_plot(visualize,
+                         save,
+                         f"histplot_{model_name}",
+                         "models",
+                         f"histplot_{model_name}",
+                         fig)
+        
+    
+    def _plot_boxplot(self, title, data, x, y, xlabel, ylabel, xticks, model_name, visualize, save):
+
+        fig, _, _ = self._init_plot([None], title)
+        sns.boxplot(x=x, y=y, data=data)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.xticks(xticks[0], xticks[1])
+        self._close_plot(visualize,
+                         save,
+                         f"boxplot_{model_name}",
+                         "models",
+                         f"boxplot_{model_name}",
                          fig)
 
 
@@ -263,11 +322,11 @@ class Plotter:
                        visualize: bool = True,
                        save: bool = False):
         
-        fig = plt.figure(figsize=(20, 10)) # Regola la dimensione della figura secondo necessità
-        gs = fig.add_gridspec(2, 3) # Griglia con 2 righe e 3 colonne
+        fig = plt.figure(figsize=(20, 10)) 
+        gs = fig.add_gridspec(2, 3) 
 
         # Plot 1: P-value bar plot
-        ax0 = fig.add_subplot(gs[0, :]) # La prima riga, che occupa tutte e 3 le colonne
+        ax0 = fig.add_subplot(gs[0, :]) 
         sns.barplot(data=data, x='Column', y='P-value', color='blue', ax=ax0)
         ax0.axhline(0.05, color='red', linestyle='--', label='P-value threshold (0.05)')
         ax0.set_title(f"P-value for each column")
@@ -282,17 +341,17 @@ class Plotter:
         df_cramers_v = data.set_index('Column')[['Cramers_V']]
 
         # Plot 2: P-value Heatmap
-        ax1 = fig.add_subplot(gs[1, 0]) # Seconda riga, prima colonna
+        ax1 = fig.add_subplot(gs[1, 0]) 
         sns.heatmap(df_p_value, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'P-value'}, ax=ax1)
         ax1.set_title(f"P-value Heatmap")
 
         # Plot 3: Chi-Squared Heatmap
-        ax2 = fig.add_subplot(gs[1, 1]) # Seconda riga, seconda colonna
+        ax2 = fig.add_subplot(gs[1, 1]) 
         sns.heatmap(df_chi2, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'Chi-Squared'}, ax=ax2)
         ax2.set_title(f"Chi-Squared Heatmap")
 
         # Plot 4: Cramer's V Heatmap
-        ax3 = fig.add_subplot(gs[1, 2]) # Seconda riga, terza colonna
+        ax3 = fig.add_subplot(gs[1, 2]) 
         sns.heatmap(df_cramers_v, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': "Cramer's V"}, ax=ax3)
         ax3.set_title(f"Cramer's V Heatmap")
 
@@ -303,6 +362,7 @@ class Plotter:
                          "correlation", 
                          f"cramers_v_analysis_{target_name.lower()}", 
                          fig)
+
 
     def plot_DR(self, 
                 data: dict, 
@@ -610,74 +670,150 @@ class Plotter:
         self._close_plot(visualize, save, f"metrics_comparison_{model_name}", "classification", model_name, fig)
 
 
-    def _plot_roc_curves(self,
-                        fpr_train, tpr_train, auc_train,
-                        cv_results: dict = None,
-                        model_name: str = "Model",
-                        visualize: bool = True,
-                        save: bool = False):
+    def _plot_performance_curves(self,
+                         curve_type: Literal['roc', 'pr'],
+                         x_data,
+                         y_data,
+                         metric_train_value, # AUC or AP
+                         baseline_value = None, # For PR, this is the horizontal line value. For ROC, it's ignored (uses [0,1] line)
+                         cv_results: dict = None,
+                         model_name: str = "Model",
+                         visualize: bool = True,
+                         save: bool = False):
         """
-        Plots ROC curves for training and optionally for cross-validation results.
+        Plots ROC or Precision-Recall curves for training and optionally for cross-validation results.
         """
+        fig, ax, _ = self._init_plot([None], f"{curve_type.upper()} Curve for {model_name}")
 
-        fig, ax, _ = self._init_plot([None], f"ROC Curve for {model_name}")
+        # Determine labels and title based on curve_type
+        if curve_type == 'roc':
+            x_label = 'False Positive Rate'
+            y_label = 'True Positive Rate'
+            title = 'ROC Curve'
+            train_label = f'Model (AUC = {metric_train_value:.2f})'
+            cv_label_format = 'Cross-Val (AUC = {:.2f} ± {:.2f})'
+            baseline_plot_args = ([0, 1], [0, 1]) # Diagonal line for ROC
+            baseline_label = 'Random'
+            legend_loc = 'lower right'
+            filename_prefix = "roc_curve"
+        elif curve_type == 'pr':
+            x_label = 'Recall'
+            y_label = 'Precision'
+            title = 'Precision-Recall Curve'
+            train_label = f'Train (AP = {metric_train_value:.2f})'
+            cv_label_format = 'Cross-Val (AP = {:.2f})'
+            baseline_plot_args = ([0, 1], [baseline_value, baseline_value]) # Horizontal line for PR
+            baseline_label = f'Baseline ({baseline_value:.2f})'
+            legend_loc = 'upper right'
+            filename_prefix = "pr_curve"
+        else:
+            self.logger.error(f"Invalid curve_type: {curve_type}. Must be 'roc' or 'pr'.")
+            self._close_plot(visualize, save, f"invalid_curve_type_{model_name}", "classification", model_name, fig)
+            return
 
-        # Train ROC Curve        
-        ax[0].plot(fpr_train, tpr_train, label=f'Train (AUC = {auc_train:.2f})', lw=2)
+        # Plot Train Curve if data is available
+        if x_data is not None and y_data is not None:
+            ax[0].plot(x_data, y_data, label=train_label, lw=2)
 
-        # CV ROC Curve
+        # Plot CV Curve if results are available
         if cv_results:
-            mean_fpr = cv_results.get('mean_fpr')
-            mean_tpr = cv_results.get('mean_tpr')
-            mean_auc = cv_results.get('mean_auc')
-            std_auc = cv_results.get('std_auc')
-            if all(v is not None for v in [mean_fpr, mean_tpr, mean_auc, std_auc]):
-                ax[0].plot(mean_fpr, mean_tpr, lw=2, label=f'Cross-Val (AUC = {mean_auc:.2f} ± {std_auc:.2f})')
+            if curve_type == 'roc':
+                mean_x_cv = cv_results.get('mean_fpr')
+                mean_y_cv = cv_results.get('mean_tpr')
+                mean_metric_cv = cv_results.get('mean_auc')
+                std_metric_cv = cv_results.get('std_auc')
+                if all(v is not None for v in [mean_x_cv, mean_y_cv, mean_metric_cv, std_metric_cv]):
+                    ax[0].plot(mean_x_cv, mean_y_cv, lw=2, label=cv_label_format.format(mean_metric_cv, std_metric_cv))
+            else: # pr
+                mean_x_cv = cv_results.get('mean_recall')
+                mean_y_cv = cv_results.get('mean_precision')
+                mean_metric_cv = cv_results.get('mean_ap')
+                if all(v is not None for v in [mean_x_cv, mean_y_cv, mean_metric_cv]):
+                    ax[0].plot(mean_x_cv, mean_y_cv, lw=2, label=cv_label_format.format(mean_metric_cv))
 
-        ax[0].plot([0, 1], [0, 1], 'k--', lw=1, label='Random Chance')
-        ax[0].set_xlabel('False Positive Rate')
-        ax[0].set_ylabel('True Positive Rate')
-        ax[0].set_title('ROC Curve')
-        ax[0].legend(loc='lower right')
+        # Plot Baseline
+        ax[0].plot(*baseline_plot_args, 'k--', lw=1, label=baseline_label)
+
+        ax[0].set_xlabel(x_label)
+        ax[0].set_ylabel(y_label)
+        ax[0].set_title(title)
+        ax[0].legend(loc=legend_loc)
         ax[0].grid(True, linestyle='--', alpha=0.6)
 
-        self._close_plot(visualize, save, f"roc_curve_{model_name}", "classification", model_name, fig)
+        if curve_type == 'pr':
+            ax[0].set_xlim([0.0, 1.0])
+            ax[0].set_ylim([0.0, 1.05])
+
+        self._close_plot(visualize, save, f"{filename_prefix}_{model_name}", "classification", model_name, fig)
 
 
-    def _plot_pr_curves(self,
-                       recall_train, precision_train, ap_train, baseline,
-                       cv_results: dict = None,
-                       model_name: str = "Model",
-                       visualize: bool = True,
-                       save: bool = False):
+    def _plot_models_metrics(self,
+                             cm,
+                             df_barplot,
+                             confidences,
+                             df_boxplot,
+                             labels,
+                             model_name,
+                             visualize,
+                             save):
         """
-        Plots Precision-Recall curves for training and optionally for cross-validation results.
+        Plots metrics from trained models.
         """
-        fig, ax, _ = self._init_plot([None], f"Precision-Recall Curve for {model_name}")
 
-        # Train PR Curve
+        self._plot_heatmap_full(
+            "Confusion Matrix",
+            cm,
+            model_name,
+            visualize,
+            save,
+            False,
+            fmt="d",
+            labels=labels,
+        )
+
+        self._plot_barplot("Metrics",
+                           df_barplot,
+                           'Metric',
+                           'Value',
+                           0.1,
+                           model_name,
+                           visualize,
+                           save)
+
+        self._plot_histplot("Confidences Histogram",
+                            confidences,
+                            10,
+                            "Max prob",
+                            "Count",
+                            model_name,
+                            visualize,
+                            save)
+
+        self._plot_boxplot("Confidences: correct vs wrong",
+                           df_boxplot,
+                           "correct",
+                           "confidence",
+                           "Correctness",
+                           "Confidence",
+                           [[0,1], ["Wrong", "Correct"]],
+                           model_name,
+                           visualize,
+                           save)
         
-        ax[0].plot(recall_train, precision_train, label=f'Train (AP = {ap_train:.2f})')
+                                  
+    def _plot_feature_importance(self, data, visualize, save):
+        """
+        Plots feature importance.
+        """
 
-        # CV PR Curve
-        if cv_results:
-            mean_recall = cv_results.get('mean_recall')
-            mean_precision = cv_results.get('mean_precision')
-            mean_ap = cv_results.get('mean_ap')
-            if all(v is not None for v in [mean_recall, mean_precision, mean_ap]):
-                ax[0].plot(mean_recall, mean_precision, label=f'Cross-Val (AP = {mean_ap:.2f})', lw=2)
-
-        ax[0].plot([0, 1], [baseline, baseline], linestyle='--', color='gray', label=f'Baseline ({baseline:.2f})')
-        ax[0].set_xlabel('Recall')
-        ax[0].set_ylabel('Precision')
-        ax[0].set_title('Precision-Recall Curve')
-        ax[0].legend()
-        ax[0].grid(linestyle='--', alpha=0.5)
-        ax[0].set_xlim([0.0, 1.0])
-        ax[0].set_ylim([0.0, 1.05])
-
-        self._close_plot(visualize, save, f"pr_curve_{model_name}", "classification", model_name, fig)
-
+        fig, ax, _ = self._init_plot([None], "Feature Importance")
+        ax[0].barh(data["feature"], data["VIP"], color="skyblue")
+        ax[0].set_xlabel("VIP Score")
+        ax[0].set_ylabel("Feature")
+        ax[0].set_title("Top 25 Feature Importance PLS by VIP Scores")
+        ax[0].invert_yaxis()
+        self._close_plot(visualize, save, "feature_importance", "classification", "feature_importance", fig, False)
+         
 
 # One time initialization of plotter object
 plotter = Plotter()

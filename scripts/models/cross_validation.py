@@ -2,17 +2,13 @@ import sys
 import os
 
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir))
+project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir, os.pardir))
 
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from sklearn.calibration import LabelEncoder
-from sklearn.discriminant_analysis import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
 
-from preprocessing.data_transformers import CLRTransformer
 from fileio.df_loader import dataloader
 from preprocessing.preprocess import Preprocessor
 from models.models import Models
@@ -21,31 +17,28 @@ from utils.splitter import Splitter
 
 def cross_validation():
 
-     # Define file paths
+    # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
 
     # Load dataset
-    dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False)
+    dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response=False)
     
-    train_df, test_df = Splitter().split_train_test(dataset)
-
+    train_df, _ = Splitter().split_train_test(dataset)
 
     # Encode Responder/Non-Responder as 0/1
     le = LabelEncoder()
 
     train_labels = le.fit_transform(train_df['response'])
-    test_labels = le.transform(test_df['response'])    
 
     # Instance preprocessor
     preprocessor = Preprocessor()
     
     # Run preprocessor
-    train_taxa, engine = preprocessor.initialize(
+    train_taxa, _ = preprocessor.initialize(
         complete_df=train_df,
         use_metadata=False,
         taxa_cols=taxa_cols
     )
-    
 
     Models().evaluate_classifier(
         train_data=train_taxa[taxa_cols],

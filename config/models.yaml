@@ -1,10 +1,10 @@
 cross_val:
-  classifier: 'LogisticRegression'
+  classifier: 'SVC'
   transformation: 'CLRTransformer'
   scaler: 'StandardScaler'
   n_splits: 2
   random_state: 42
-  save: False
+  save: True
   visualize: True
   njobs: -1
   scorings: 
@@ -14,6 +14,7 @@ cross_val:
     - f1
     - roc_auc
   param_grid:
-    "classifier__l1_ratio": "[0]"
-    "classifier__C": "np.logspace(-3, 3, 10)"
+    "classifier__kernel": "['linear', 'rbf']"
+    "classifier__C": "np.logspace(-4,4,15)"
+    "classifier__gamma": "['scale', 'auto', 0.001, 0.01]"
     "classifier__random_state": "[42]"

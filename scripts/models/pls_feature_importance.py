@@ -26,7 +26,6 @@ def pls_feature_importance():
     train_df, _ = Splitter().split_train_test(dataset)
 
     
-
     # Instance preprocessor
     preprocessor = Preprocessor()
     

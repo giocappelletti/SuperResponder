@@ -1,20 +1,40 @@
 cross_val:
-  classifier: 'SVC'
-  transformation: 'CLRTransformer'
-  scaler: 'StandardScaler'
-  n_splits: 2
+  classifier: 'SVM'
+  transformation: 'CLR'
+  scaler: 'Standard'
+  n_folds: 2
   random_state: 42
   save: True
   visualize: True
   njobs: -1
+  save_format: 'csv'  # For metrics DataFrame
+
   scorings: 
     - accuracy 
     - precision
     - recall
     - f1
     - roc_auc
+
   param_grid:
-    "classifier__kernel": "['linear', 'rbf']"
-    "classifier__C": "np.logspace(-4,4,15)"
-    "classifier__gamma": "['scale', 'auto', 0.001, 0.01]"
-    "classifier__random_state": "[42]"
+    "classifier__C":
+      _type_: "logspace"
+      start: -4
+      stop: 4
+      num: 15
+    "classifier__kernel": ['linear']
+    "classifier__gamma": ['scale', 'auto', 0.001, 0.01]
+    "classifier__random_state": [42]
+
+optuna:
+  classifier: 'XGB'
+  transformation: 'CLR'
+  scaler: 'Standard'
+  n_trials: 3
+  direction: 'maximize'
+  scoring: 'accuracy'
+  shuffle: True
+  random_state: 42
+  save: False
+  save_format: 'csv'
+  njobs: -1

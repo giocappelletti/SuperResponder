@@ -22,6 +22,15 @@ def format_pipeline(pipeline: Pipeline, name):
     return pipeline_str
 
 
+def format_param_grid(param_grid: dict):
+    """
+    Helper method to format a parameter grid for readable logging.
+    """
+    param_grid_str = f"Parameter grid:\n"
+    for param, values in param_grid.items():
+        param_grid_str += f"  - {param}: {values}\n"
+    return param_grid_str
+
 def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):
         """
         Computes a single contingency table for two given column.

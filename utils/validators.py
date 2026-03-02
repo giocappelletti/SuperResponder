@@ -202,20 +202,30 @@ def validate_config(config: dict, section: str) -> dict:
     
     if "classifier" in needed:
         params["classifier"] = s_config.get('classifier', None)
-        if params["classifier"] not in ['LogisticRegression', 'RidgeClassifier', 'SVC', 'MLPClassifier']:
+        if params["classifier"] not in ['LogReg', 'Ridge', 'SVM', 'MLP', 'XGB', 'RF', 'ExtraTrees']:
             logger.error(f"Unsupported model: {params['classifier']}")
+            logger.info("Supported models: LogReg, Ridge, SVM, MLP")
             raise ValueError()
 
     if "transformation" in needed:
         params["transformation"] = s_config.get('transformation', None)
-        if params["transformation"] not in ['CLRTransformer', 'TSSTransformer']:
+        if params["transformation"] not in ['CLR', 'TSS']:
             logger.error(f"Unsupported transformation: {params['transformation']}")
+            logger.info("Supported transformations: CLR, TSS")
             raise ValueError()
 
     if "scaler" in needed:
         params["scaler"] = s_config.get('scaler', None)
-        if params["scaler"] not in ['StandardScaler', 'MinMaxScaler', 'RobustScaler']:
+        if params["scaler"] not in ['Standard', 'MinMax', 'Robust']:
             logger.error(f"Unsupported scaler: {params['scaler']}")
+            logger.info("Supported scalers: Standard, MinMax, Robust")
+            raise ValueError()
+
+    if "n_folds" in needed:
+        params["n_folds"] = s_config.get('n_folds', None)
+        validate_config_param_type("n_folds", params["n_folds"], int)
+        if params["n_folds"] < 1:
+            logger.error(f"n_folds must be >= 1, got {params['n_folds']}")
             raise ValueError()
 
     if "param_grid" in needed:
@@ -225,6 +235,5 @@ def validate_config(config: dict, section: str) -> dict:
     if "scorings" in needed:
         params["scorings"] = s_config.get('scorings', None)
         validate_config_param_type("scorings", params["scorings"], list)
-
 
     return params

@@ -40,7 +40,7 @@ def cross_validation():
         taxa_cols=taxa_cols
     )
 
-    Models().evaluate_classifier(
+    Models().evaluate_classifier_with_optuna(
         train_data=train_taxa[taxa_cols],
         train_labels=train_labels
     )

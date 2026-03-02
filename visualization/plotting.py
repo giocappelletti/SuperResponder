@@ -801,16 +801,16 @@ class Plotter:
                            save)
         
                                   
-    def _plot_feature_importance(self, data, visualize, save):
+    def _plot_feature_importance(self, data, visualize, save, imp_type = "PLS"):
         """
         Plots feature importance.
         """
 
         fig, ax, _ = self._init_plot([None], "Feature Importance")
-        ax[0].barh(data["feature"], data["VIP"], color="skyblue")
-        ax[0].set_xlabel("VIP Score")
+        ax[0].barh(data["feature"], data["coeffs"], color="skyblue")
+        ax[0].set_xlabel("Score")
         ax[0].set_ylabel("Feature")
-        ax[0].set_title("Top 25 Feature Importance PLS by VIP Scores")
+        ax[0].set_title(f"Top Feature Importance by scores ({imp_type})")
         ax[0].invert_yaxis()
         self._close_plot(visualize, save, "feature_importance", "classification", "feature_importance", fig, False)
          

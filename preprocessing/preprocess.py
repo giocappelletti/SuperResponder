@@ -1,5 +1,6 @@
 import yaml
 import pandas as pd
+
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
@@ -26,78 +27,19 @@ class Preprocessor:
             Scaler class (e.g., StandardScaler).
     """
 
-    def __init__(self, config_path="config/features.yaml", transformer=CLRTransformer, scaler=StandardScaler):
+    def __init__(self, config_path = "config/features.yaml", transformer = CLRTransformer, scaler = StandardScaler):
 
         self.logger = logger
 
         self.config_path = config_path
 
-        self.logger.info(f"Loading preprocessing configuration from {self.config_path}")
-
         self.transformation = transformer
 
-        self.logger.info(f"Preprocessor: Using transformation {self.transformation.__name__}")
-
         self.scaler = scaler
-
-        self.logger.info(f"Preprocessor: Using scaler {self.scaler.__name__}")
 
         with open(self.config_path, "r") as f:
             self.config = yaml.safe_load(f)
         
-        params = validate_config(self.config, "features")
-        self.useless_metadata = params['useless_metadata']
-        self.categorical_features = params['categorical_features']
-        self.ordinal_features = params['ordinal_features']
-        self.numeric_features = params['numeric_features']
-        self.age_order = params['age_order']
-
-        self.logger.info(
-            f"Loaded features from config file {self.config_path}: \n"
-            f"  - Useless Metadata: {', '.join(self.useless_metadata) if self.useless_metadata else 'None'} \n"
-            f"  - Categorical Features: {', '.join(self.categorical_features) if self.categorical_features else 'None'} \n"
-            f"  - Ordinal Features: {', '.join(self.ordinal_features) if self.ordinal_features else 'None'} \n"
-            f"  - Numeric Features: {', '.join(self.numeric_features) if self.numeric_features else 'None'} \n"
-            f"  - Age Order: {', '.join(self.age_order) if self.age_order else 'None'} \n"
-        )
-
-
-    def initialize(self, complete_df: pd.DataFrame, use_metadata: bool = True, taxa_cols: list = None) -> tuple:
-        """
-        Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
-        
-        Parameters
-        ----------
-            complete_df: pd.DataFrame
-                The complete DataFrame from DataLoader.
-            use_metadata: bool, default=True
-                Boolean flag to determine if metadata should be included.
-            taxa_cols: list, default=None
-                List of taxonomic columns.
-        Returns
-        -------
-            tuple (DataFrame, ColumnTransformer)
-                Transformed DataFrame and ColumnTransformer
-        """
-
-        if not use_metadata:
-            # Only taxa, no preprocessing pipeline for metadata
-            return complete_df[taxa_cols], None
-
-        # Filter features present in the dataframe
-        features_to_keep = [col for col in complete_df.columns if col not in self.useless_metadata]
-        filtered_dataset = complete_df[features_to_keep].copy()
-
-        # Use the existing setup_pipeline logic
-        return self._setup_pipeline(
-            filtered_dataset, 
-            self.useless_metadata, 
-            self.categorical_features, 
-            self.ordinal_features, 
-            self.numeric_features, 
-            compositional_features=taxa_cols
-        )
-
 
     def _fillna_metadata(self, dataset, useless_metadata):
         """
@@ -122,8 +64,12 @@ class Preprocessor:
         return dataframe
 
 
-    def _build_column_transformer(self, categorical_features, ordinal_features, 
-                                   numeric_features, compositional_features):
+    def _build_column_transformer(self, 
+                                  categorical_features, 
+                                  ordinal_features, 
+                                  numeric_features, 
+                                  compositional_features, 
+                                  age_order):
         """
         Internal method to construct the Scikit-learn ColumnTransformer engine.
         """
@@ -138,7 +84,7 @@ class Preprocessor:
         ord_pipe = Pipeline([
             ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
             ('ordinal', OrdinalEncoder(
-                categories=[self.age_order], 
+                categories=[age_order], 
                 handle_unknown='use_encoded_value', 
                 unknown_value=-1
             )),
@@ -173,26 +119,76 @@ class Preprocessor:
         ])
 
     
-    def _setup_pipeline(self, X_dataset, useless_metadata, 
-                       categorical_features=None, ordinal_features=None, 
-                       numeric_features=None, compositional_features=None):
+    def _setup_pipeline(self, 
+                        X_dataset, 
+                        useless_metadata, 
+                        categorical_features = [], 
+                        ordinal_features = [], 
+                        numeric_features = [], 
+                        compositional_features = [], 
+                        age_order = []):
         """
         Main entry point to prepare the dataset and the preprocessing engine.
         """
         
         # Ensure default empty lists if none provided
-        cat_f = categorical_features or []
-        ord_f = ordinal_features or []
-        num_f = numeric_features or []
-        comp_f = compositional_features or []
 
-        # 1. Handle missing values explicitly (returns a new DF)
         X_prepared = self._fillna_metadata(X_dataset, useless_metadata)
         
-        # 2. Build column tansformer
-        col_transf = self._build_column_transformer(cat_f, ord_f, num_f, comp_f)
+        col_transf = self._build_column_transformer(categorical_features, 
+                                                    ordinal_features, 
+                                                    numeric_features, 
+                                                    compositional_features, 
+                                                    age_order)
 
         return X_prepared, col_transf
 
+
+    def initialize(self, complete_df: pd.DataFrame, use_metadata: bool = True, taxa_cols: list = None) -> tuple:
+        """
+        Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
+        
+        Parameters
+        ----------
+            complete_df: pd.DataFrame
+                The complete DataFrame from DataLoader.
+            use_metadata: bool, default=True
+                Boolean flag to determine if metadata should be included.
+            taxa_cols: list, default=None
+                List of taxonomic columns.
+        Returns
+        -------
+            tuple (DataFrame, ColumnTransformer)
+                Transformed DataFrame and ColumnTransformer
+        """
+
+        self.logger.info(f"Initializing Preprocessor with {self.transformation.__name__} and {self.scaler.__name__}")
+
+        params = validate_config(self.config, "features")
+        useless_metadata = params.get('useless_metadata', [])
+        categorical_features = params.get('categorical_features', [])
+        ordinal_features = params.get('ordinal_features', [])
+        numeric_features = params.get('numeric_features', [])
+        age_order = params.get('age_order', [])
+
+        if not use_metadata:
+            # Only taxa, no preprocessing pipeline for metadata
+            return complete_df[taxa_cols], None
+
+        # Filter features present in the dataframe
+        features_to_keep = [col for col in complete_df.columns if col not in useless_metadata]
+        filtered_dataset = complete_df[features_to_keep].copy()
+
+        # Use the existing setup_pipeline logic
+        return self._setup_pipeline(
+            filtered_dataset, 
+            useless_metadata, 
+            categorical_features, 
+            ordinal_features, 
+            numeric_features, 
+            taxa_cols,
+            age_order
+        )
+    
 
 preprocessor = Preprocessor()

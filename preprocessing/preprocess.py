@@ -6,8 +6,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
-from .data_transformers import CLRTransformer
-from logger.logger import logger
+from . import CLRTransformer
+from logger import logger
 from utils.utils import format_pipeline
 from utils.validators import validate_config
 
@@ -76,23 +76,23 @@ class Preprocessor:
 
         # Pipeline for standard categorical features (One-Hot Encoding)
         cat_pipe = Pipeline([
-            ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-            ('onehot', OneHotEncoder(handle_unknown='ignore', drop='if_binary'))
+            ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'missing')),
+            ('onehot', OneHotEncoder(handle_unknown = 'ignore', drop = 'if_binary'))
         ])
 
         # Pipeline for ordinal features like Age groups
         ord_pipe = Pipeline([
-            ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+            ('imputer', SimpleImputer(strategy = 'constant', fill_value = 'missing')),
             ('ordinal', OrdinalEncoder(
-                categories=[age_order], 
-                handle_unknown='use_encoded_value', 
-                unknown_value=-1
+                categories = [age_order], 
+                handle_unknown = 'use_encoded_value', 
+                unknown_value = -1
             )),
         ])
 
         # Pipeline for numeric features (e.g., sequencing depth metrics)
         num_pipe = Pipeline([
-            ('imputer', SimpleImputer(strategy='median')),
+            ('imputer', SimpleImputer(strategy = 'median')),
             ('scaler', self.scaler() if self.scaler else 'passthrough')
         ])
 
@@ -144,7 +144,10 @@ class Preprocessor:
         return X_prepared, col_transf
 
 
-    def initialize(self, complete_df: pd.DataFrame, use_metadata: bool = True, taxa_cols: list = None) -> tuple:
+    def initialize(self, 
+                   complete_df: pd.DataFrame, 
+                   use_metadata: bool = True, 
+                   taxa_cols: list = None) -> tuple[pd.DataFrame, ColumnTransformer]:
         """
         Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
         
@@ -189,6 +192,3 @@ class Preprocessor:
             taxa_cols,
             age_order
         )
-    
-
-preprocessor = Preprocessor()

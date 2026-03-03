@@ -1,33 +1,34 @@
+from typing import Literal
+
 import pandas as pd
 import numpy as np
-
-from tqdm.auto import tqdm
 
 from scipy.stats import kendalltau, pointbiserialr
 from sklearn.preprocessing import LabelEncoder
 
-from fileio.df_loader import dataloader
-from utils.utils import compute_contingency
-from logger.logger import logger
+from utils import compute_contingency
+from logger import logger
 
 
 class Correlator:
     """
     Handles correlation analysis between variables.
+    Parameters
+    ----------
+        dataloader: DataLoader
+            Object to handle data loading.
+        serializer: Serializer
+            Object to handle data serialization.
+        plotter: Plotter
+            Object to handle data visualization.
+            
     """
 
-    def __init__(self):
+    def __init__(self, dataloader, serializer, plotter):
         self.logger = logger
-           
-
-    @staticmethod
-    def _get_dataframe(dataset: pd.DataFrame | str):
-        """
-        Helper method to handle dataset loading.
-        """
-        if isinstance(dataset, str):
-            dataset = dataloader.load_dataset(dataset)
-        return dataset
+        self.dataloader = dataloader
+        self.serializer = serializer
+        self.plotter = plotter
 
 
     @staticmethod
@@ -71,6 +72,7 @@ class Correlator:
         """
         Helper method to format Cramer's V and Chi-Squared results into a DataFrame.
         """
+
         df_results = pd.DataFrame(results).T.reset_index()
         df_results.columns = ['Column', 'Chi-Squared', 'P-value', "Cramers_V"]
         df_results['Target'] = target_name
@@ -83,22 +85,6 @@ class Correlator:
         Helper function to compute correlation between a single target variable and numeric columns.
         Supported targets are 'response' and 'ORR'.
         Uses Point-Biserial correlation for binary 'response' or Kendall's Tau for 'ORR'.
-        
-        Parameters
-        ----------
-            dataset: pd.DataFrame or str
-                The dataset containing the variables.
-            target: str or list
-                The target column name or a list of both. Must be either 'response' or 'ORR'.
-            start_index: int
-                The starting integer index for the numeric columns to analyze.
-
-        Returns
-        -------
-            correlation_matrix: pd.DataFrame
-                DataFrame containing correlation coefficients and standard deviations.
-            count_significant_correlations: int
-                Number of columns with an absolute correlation coefficient greater than 0.1.
         """
         
         # Make a copy to avoid modifying the original dataset passed to the helper
@@ -122,8 +108,9 @@ class Correlator:
             
             # After encoding (or if already numeric), verify it's binary
             if set(local_dataset['response'].dropna().unique()) != {0, 1}:
-                self.logger.error(f"Column 'response' must contain only 0 and 1 values for point-biserial correlation, {local_dataset['response'].dropna().unique()} found after encoding.")
-                raise ValueError("Response column must be binary (0 or 1).")
+                self.logger.error(f"Column 'response' must contain only 0 and 1 values for point-biserial correlation"
+                                  f"{local_dataset['response'].dropna().unique()} found after encoding.")
+                raise ValueError()
             
         elif target_name == "ORR": # target_name == "ORR"
             # Ensure 'ORR' is numeric. It's categorical (PD, PR, CR, Dead) and needs encoding.
@@ -134,6 +121,7 @@ class Correlator:
             if not pd.api.types.is_numeric_dtype(local_dataset['ORR']):
                 self.logger.error("Column 'ORR' must be numeric")
                 raise ValueError
+            
             # If it was already numeric, no encoding needed.
             # No further check on unique values needed for Kendall's Tau as it handles ordinal data.
         else: # Invalid target_name
@@ -144,13 +132,13 @@ class Correlator:
         # Ensure target_name is numeric after potential encoding
         if not pd.api.types.is_numeric_dtype(local_dataset[target_name]):
             self.logger.error(f"Target column '{target_name}' is not numeric after processing. Cannot proceed with correlation.")
-            raise TypeError(f"Target column '{target_name}' is not numeric.")
+            raise TypeError()
 
         numeric_columns = [col for col in local_dataset.columns if pd.api.types.is_numeric_dtype(local_dataset[col]) and col != target_name]
 
         column_name = f'{target_name}_correlation'
 
-        correlation_matrix = pd.DataFrame(index=numeric_columns, columns=[column_name])
+        correlation_matrix = pd.DataFrame(index = numeric_columns, columns = [column_name])
 
         for col in numeric_columns:
             # Use local_dataset for valid_data to ensure encoded values are used
@@ -178,7 +166,7 @@ class Correlator:
         correlation_matrix['STD_dev'] = local_dataset[numeric_columns].std() 
 
         # Prepare DataFrame for stacking
-        df_result = correlation_matrix.reset_index().rename(columns={'index': 'Column'})
+        df_result = correlation_matrix.reset_index().rename(columns = {'index': 'Column'})
         df_result['Target'] = target_name
 
         # Counts significative correlations (absolute value > 0.1)
@@ -187,7 +175,13 @@ class Correlator:
         return df_result, count_significant_correlations
 
 
-    def chi2_cramers_v(self, dataset: pd.DataFrame | str, meta_cols: list, targets: list):
+    def chi2_cramers_v(self, 
+                       dataset: pd.DataFrame | str, 
+                       meta_cols: list, 
+                       target: list,
+                       visualize: bool = True, 
+                       save: bool = False,
+                       save_format: Literal['csv', 'tsv', 'xlsx'] = "csv") -> pd.DataFrame:
         """
         Computes Chi-Squared and Cramer's V statistics for multiple target variables.
 
@@ -199,6 +193,12 @@ class Correlator:
                 List of metadata columns to analyze.
             targets: list
                 List of target columns to compute correlations against.
+            visualize: bool, default True
+                Whether to display the plots.
+            save: bool, default False
+                Whether to save the plots to disk.
+            save_format: Literal['csv', 'tsv', 'xlsx'], default "csv"
+                Format to use when saving results if save is True.
 
         Returns
         -------
@@ -207,11 +207,11 @@ class Correlator:
                 
         """
         
-        dataset = self._get_dataframe(dataset)
+        dataset = self.dataloader._get_dataframe(dataset)
 
         all_results_dfs = []
 
-        for target in targets:
+        for target in target:
             if target not in meta_cols:
                 self.logger.warning(f"Target {target} not found in metadata columns, skipping analysis")
                 continue
@@ -220,10 +220,29 @@ class Correlator:
             results = self._cramers_v(dataset, meta_cols, target)
             all_results_dfs.append(self._create_results_df(results, target))
 
-        return pd.concat(all_results_dfs, ignore_index=True)
+        corr_dfs = pd.concat(all_results_dfs, ignore_index = True)
 
 
-    def correlate_metadata(self, dataset: pd.DataFrame | str, meta_cols: list):
+        # Plot Cramer's V for each target
+        for target in corr_dfs['Target'].unique():
+            single_target_df = corr_dfs[corr_dfs['Target'] == target].copy()
+            self.plotter._plot_cramers_v(single_target_df, target, visualize, save)
+        
+        if save:
+            self.serializer.save_file(corr_dfs,
+                                      "correlation",
+                                      exp_type = "chi2_cramers_v_all_targets",
+                                      exp_group = "correlation",
+                                      save_format = save_format)
+        
+        return corr_dfs
+                                      
+
+    def correlate_metadata(self, 
+                           dataset: pd.DataFrame | str, 
+                           meta_cols: list,
+                           visualize: bool = True, 
+                           save: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Computes the correlation between metadata variables using the chi-squared test.
 
@@ -243,15 +262,17 @@ class Correlator:
                 
         """
 
-        dataset = self._get_dataframe(dataset)
+        dataset = self.dataloader._get_dataframe(dataset)
 
         # Create a matrix to memorize p_values
         p_matrix = pd.DataFrame(np.zeros((len(meta_cols), len(meta_cols))), 
-                                index=meta_cols, columns=meta_cols)
+                                index = meta_cols, 
+                                columns = meta_cols)
 
         # Create a matrix to memorize chi-squared values
         chi2_matrix = pd.DataFrame(np.zeros((len(meta_cols), len(meta_cols))), 
-                                        index=meta_cols, columns=meta_cols)
+                                   index = meta_cols, 
+                                   columns = meta_cols)
 
         self.logger.info("Computing correlation between metadata columns")
         # Compute chi-sqared for every couple of columns
@@ -266,10 +287,19 @@ class Correlator:
         np.seterr(divide='ignore')
         log_p_value_matrix = -np.log10(p_matrix)
 
+        self.plotter._plot_metadata_correlation(log_p_value_matrix, 
+                                                chi2_matrix,
+                                                visualize,
+                                                save)
+
         return log_p_value_matrix, chi2_matrix
 
 
-    def correlate_with_std(self, dataset: pd.DataFrame | str, target: str | list[str], start_index: int):
+    def correlate_with_std(self, 
+                           dataset: pd.DataFrame | str, 
+                           target: str | list[str], 
+                           start_index: int,
+                           save: bool = False) -> tuple[pd.DataFrame, int] | tuple[dict[str, pd.DataFrame], dict]:
         """
         Computes correlation between a target variable (or variables) and numeric columns starting from a specific index.
         Supported targets are 'response' and 'ORR'.
@@ -299,7 +329,7 @@ class Correlator:
                     Dictionary mapping each target name to its count of columns with absolute correlation > 0.1.
         """
 
-        dataset = self._get_dataframe(dataset)
+        dataset = self.dataloader._get_dataframe(dataset)
 
         if isinstance(target, str):
             return self._correlate_single_target_with_std(dataset, target, start_index)
@@ -321,7 +351,20 @@ class Correlator:
                 correlation_dfs[t] = corr_matrix_df
                 all_counts[t] = count
                 self.logger.info(f"Found {count} columns with correlation > 0.1 for {t} column")
-                            
+            
+            if save:
+                self.serializer.save_file(correlation_dfs['response'],
+                            subfolder = "correlation",
+                            exp_type = "correlation_response",
+                            exp_group = "correlation",
+                            save_format = "csv")
+
+                self.serializer.save_file(correlation_dfs['ORR'],
+                                    subfolder = "correlation",
+                                    exp_type = "correlation_ORR",
+                                    exp_group = "correlation",
+                                    save_format = "csv")
+
             return correlation_dfs, all_counts
         
         else:

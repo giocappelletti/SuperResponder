@@ -26,10 +26,12 @@ def format_param_grid(param_grid: dict):
     """
     Helper method to format a parameter grid for readable logging.
     """
+    
     param_grid_str = f"Parameter grid:\n"
     for param, values in param_grid.items():
         param_grid_str += f"  - {param}: {values}\n"
     return param_grid_str
+
 
 def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):
         """
@@ -52,6 +54,7 @@ def get_first_column_index(dataset: pd.DataFrame, start_column: str) -> int | No
     Returns the integer index of the first column that starts with start_column.
     Returns None if no such column is found.
     """
+
     for i, col in enumerate(dataset.columns):
         if col.startswith(start_column):
             return i

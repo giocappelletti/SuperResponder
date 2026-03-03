@@ -1,11 +1,16 @@
 cross_val:
-  classifier: 'SVM'
-  transformation: 'CLR'
-  scaler: 'Standard'
+  pipeline:
+    classifier: 'Ridge'
+    transformation: 'CLR'
+    scaler: 'Standard'
+    smote: False
+    reduction: 'None'
+
   n_folds: 2
   random_state: 42
+  shuffle: True
   save: True
-  visualize: True
+  visualize: False
   njobs: -1
   save_format: 'csv'  # For metrics DataFrame
 
@@ -16,20 +21,14 @@ cross_val:
     - f1
     - roc_auc
 
-  param_grid:
-    "classifier__C":
-      _type_: "logspace"
-      start: -4
-      stop: 4
-      num: 15
-    "classifier__kernel": ['linear']
-    "classifier__gamma": ['scale', 'auto', 0.001, 0.01]
-    "classifier__random_state": [42]
-
 optuna:
-  classifier: 'XGB'
-  transformation: 'CLR'
-  scaler: 'Standard'
+  pipeline:
+    classifier: 'XGB'
+    transformation: 'CLR'
+    scaler: 'Standard'
+    smote: False
+    reduction: 'None'
+
   n_trials: 3
   direction: 'maximize'
   scoring: 'accuracy'

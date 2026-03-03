@@ -7,7 +7,8 @@ project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from utils.splitter import Splitter
+from utils import Splitter
+from fileio import dataloader, serializer
 
 
 def split_dataset():
@@ -17,7 +18,7 @@ def split_dataset():
     genus = os.path.join(project_root, 'datasets', 'genus_r.tsv')
         
     # Instance splitter object using deafult config file
-    splitter = Splitter()
+    splitter = Splitter(dataloader, serializer)
 
     # Split raw dataset in train and test sets
     train_set, test_set = splitter.split_train_test(raw_dataset)

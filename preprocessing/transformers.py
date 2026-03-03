@@ -4,6 +4,9 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from skbio.stats.composition import clr, multi_replace
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from logger import logger
 
 
 class CLRTransformer(BaseEstimator, TransformerMixin):
@@ -17,7 +20,7 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
 
     """
 
-    def __init__(self, pseudo_count=None):
+    def __init__(self, pseudo_count = None):
         self.pseudo_count = pseudo_count
     
 
@@ -29,7 +32,7 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
         return clr(data)
     
 
-    def fit(self, x, y=None):
+    def fit(self, x, y = None): # Must write x and y to avoid errors
         """
         Fits the transformer. No-op for CLRTransformer as it doesn't learn parameters from data.
         """
@@ -45,7 +48,7 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
 class TSSTransformer(BaseEstimator, TransformerMixin):
     """Total Sum Scaling (TSS) Transformer."""
     
-    def fit(self, x, y=None):
+    def fit(self, x, y = None):
         """
         Fits the transformer. No-op for TSSTransformer as it doesn't learn parameters from data.
         """
@@ -56,7 +59,7 @@ class TSSTransformer(BaseEstimator, TransformerMixin):
         """
         Applies TSS transformation to the input data.
         """
-        return data.div(data.sum(axis=1), axis=0)
+        return data.div(data.sum(axis = 1), axis = 0)
 
 
 class RankingFeatureSelector(BaseEstimator, TransformerMixin):
@@ -72,11 +75,13 @@ class RankingFeatureSelector(BaseEstimator, TransformerMixin):
             
     """
 
-    def __init__(self, ranking, threshold=100):
+    def __init__(self, dataloader, ranking = "datasets/ranking/ranking_FullTrain.csv", threshold = 100):
         self.threshold = threshold
         self.selected_features = None
+        self.dataloader = dataloader
 
-        self.ranking = ranking.squeeze()  # Converts to Series
+        loaded_ranking = self.dataloader.load_dataset(ranking, drop_response = False, sanitize = False)
+        self.ranking = loaded_ranking.squeeze()  # Converts to Series
 
 
     def fit(self, X, y=None):
@@ -120,14 +125,14 @@ class PLSVarianceSelector(BaseEstimator, TransformerMixin):
         
         components = X.shape[1] if self.n_components == None else self.n_components
 
-        self._pls = PLSRegression(n_components=components)
+        self._pls = PLSRegression(n_components = components)
         self._pls.fit(X, y)
 
         # Compute variance        
         X_transformed = self._pls.transform(X)
 
         if self.n_components == None:
-            explained_variance = np.var(X_transformed, axis=0)
+            explained_variance = np.var(X_transformed, axis = 0)
             total_var = explained_variance.sum()
             explained_ratio = explained_variance / total_var
             cumulative_variance = np.cumsum(explained_ratio) 
@@ -164,12 +169,12 @@ class CompReduction(BaseEstimator, TransformerMixin):
             
     """
 
-    def __init__(self, n_comp_features, reduction):
+    def __init__(self, n_comp_features = 1128, reduction = PCA()):
         self.n_comp_features = n_comp_features
         self.reduction = reduction
 
 
-    def fit(self, X, y=None):
+    def fit(self, X, y = None):
         """
         Fits the reduction technique on the compositional features.
         """
@@ -191,3 +196,81 @@ class CompReduction(BaseEstimator, TransformerMixin):
         
         return np.hstack((X_meta, X_comp_reduced))
 
+
+class SmartScaler:
+    """
+    Scales the data using the specified transformer and scaler.
+
+    Parameters
+    ----------
+        transformer: class
+            The specific data transfomer to use (e.g., CLRTransformer).
+        scaler: class
+            The specific scaler to use (e.g., StandardScaler).
+    """
+
+    def __init__(self, transformer = CLRTransformer, scaler = StandardScaler):
+        self.logger = logger
+        
+        self.transformer = transformer()
+        self.logger.info(f"Scaler: Using transformer {self.transformer.__class__.__name__}")
+        
+        self.scaler = scaler(with_mean = False, with_std = False)
+        self.logger.info(f"Scaler: Using scaler {self.scaler.__class__.__name__}") 
+    
+
+    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fits and transforms the data using the specified transformer and scaler.
+        
+        Parameters
+        ----------
+            data: pd.DataFrame
+                Input data to scale and transform
+            
+        Returns
+        -------
+            pd.DataFrame: 
+                Scaled and transformed data
+        """
+
+        transf_data = self.transformer.fit_transform(data)
+        return self.scaler.fit_transform(transf_data)
+
+
+    def transform(self, data) -> pd.DataFrame:
+        """
+        Transforms the data using the specified transformer and scaler.
+        
+        Parameters
+        ----------
+            data: pd.DataFrame
+                Input data to transform
+            
+        Returns
+        -------
+            pd.DataFrame: 
+                Transformed data
+        """
+
+        transf_data = self.transformer.transform(data)
+        return self.scaler.transform(transf_data)
+    
+
+    def transform_then_fit_transform(self, data) -> pd.DataFrame:
+        """
+        Transforms then fits the data using the specified transformer and scaler.
+        
+        Parameters
+        ----------
+            data: pd.DataFrame
+                Input data to scale and transform
+            
+        Returns
+        -------
+            pd.DataFrame: 
+                Scaled and transformed data
+        """
+
+        transf_data = self.transformer.transform(data)
+        return self.scaler.fit_transform(transf_data)

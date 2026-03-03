@@ -9,45 +9,48 @@ if project_root not in sys.path:
 
 from sklearn.calibration import LabelEncoder
 
-from preprocessing.data_transformers import CLRTransformer
-from fileio.df_loader import dataloader
-from preprocessing.preprocess import Preprocessor
-from models.models import Models
-from utils.splitter import Splitter
+from utils import Splitter
+from models import Models
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def hard_ensemble_voting():
 
     # Define models paths
     models_paths = [
-        "results/model_evaluation/20260227_164640/classifier_results/LogisticRegression.pkl",
-        "results/model_evaluation/20260227_171142/classifier_results/RidgeClassifier.pkl"
+        "results/model_evaluation/20260303_174707/classifier_results/LogReg.pkl",
+        "results/model_evaluation/20260303_174721/classifier_results/Ridge.pkl"
     ] 
 
     # Define dataset 
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
 
-    # Load dataset
-    dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response=False)
-    
-    _, test_df = Splitter().split_train_test(dataset)
+    # Instantiate dependencies
+    models_instance = Models(serializer, plotter)
 
+    # Load dataset
+    dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response = False)
+    
+    _, test_df = Splitter(dataloader=dataloader, serializer=serializer).split_train_test(dataset)
+    
     le = LabelEncoder()
     y_test = le.fit_transform(test_df['response'])
 
     label_map = {'NR': 'Non Responder', 'R': 'Responder'}
     labels = [label_map[c] for c in le.classes_]
     
-    x_test = test_df.drop(columns=['response'])
+    x_test = test_df.drop(columns = ['response'])
 
-    Models().hard_voting_ensemble(models_paths,
+    models_instance.hard_voting_ensemble(models_paths,
                                   x_test,
                                   y_test,
                                   labels,
-                                  compute_roc=True,
-                                  taxa_cols=taxa_cols,
-                                  visualize=True,
-                                  save=True
+                                  compute_roc = True,
+                                  taxa_cols = taxa_cols,
+                                  visualize = True,
+                                  save = False
                                   )
 
 

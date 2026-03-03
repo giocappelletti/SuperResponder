@@ -9,26 +9,26 @@ if project_root not in sys.path:
 
 from sklearn.preprocessing import StandardScaler
 
-from preprocessing.data_transformers import CLRTransformer
-from preprocessing.scaler import SmartScaler
-from preprocessing.preprocess import Preprocessor
-from fileio.df_loader import dataloader
-from clustering.clustering import Clustering
+from preprocessing import CLRTransformer, SmartScaler, Preprocessor
+from analysis import Clustering
+from analysis.clustering import Clustering
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def elbow_silhouette():
 
     # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
-    dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
-    clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml') 
     
+    # Instantiate dependencies
+    clustering_instance = Clustering(dataloader, serializer, plotter)
+
     # Load dataset
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 
-    # Instance preprocessor
     preprocessor = Preprocessor(
-        config_path=dataset_config_path,
         transformer=CLRTransformer,
         scaler=StandardScaler
     )
@@ -44,7 +44,7 @@ def elbow_silhouette():
     scaled_taxa = SmartScaler().fit_transform(X_taxa)
 
     # Compute elbow and silhouette scores
-    inertia, silhouette = Clustering(clustering_config_path).compute_elbow_silhouette(scaled_taxa)
+    inertia, silhouette = clustering_instance.compute_elbow_silhouette(scaled_taxa)
     
 
 if __name__ == "__main__":

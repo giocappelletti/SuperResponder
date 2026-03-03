@@ -9,11 +9,12 @@ if project_root not in sys.path:
 
 from sklearn.preprocessing import StandardScaler
 
-from preprocessing.data_transformers import CLRTransformer
-from preprocessing.scaler import SmartScaler
-from preprocessing.preprocess import Preprocessor
-from fileio.df_loader import dataloader
-from clustering.clustering import Clustering
+from preprocessing import CLRTransformer, SmartScaler, Preprocessor
+from analysis import Clustering
+from analysis.clustering import Clustering
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def pca_clustering():
@@ -21,23 +22,23 @@ def pca_clustering():
     # Define file paths    
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     unifrac_dataset_path = os.path.join(project_root, 'datasets', 'unifrac', 'dm_588_bacteria_w_unifrac.tsv')
-    dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
+
+    # Instantiate dependencies
+    clustering = Clustering(dataloader, serializer, plotter)
 
     # Load reference dataset (Full)
     ref_dataset, ref_taxa_cols, _ = dataloader.load_dataset(dataset_path)
     
-    # Instance preprocessor
     preprocessor = Preprocessor(
-        config_path=dataset_config_path,
-        transformer=CLRTransformer,
-        scaler=StandardScaler
+        transformer = CLRTransformer,
+        scaler = StandardScaler
     )
 
     # Run preprocessor
     X_ref_taxa, _ = preprocessor.initialize(
-        complete_df=ref_dataset,
-        use_metadata=False,
-        taxa_cols=ref_taxa_cols
+        complete_df = ref_dataset,
+        use_metadata = False,
+        taxa_cols = ref_taxa_cols
     )
 
     # Scale and transform data
@@ -50,7 +51,7 @@ def pca_clustering():
     )
     
     # Run PCA
-    fitted_pca, medoids, = Clustering().pca_mds(distance_matrix_aligned, pca_type="pca")
+    fitted_pca, medoids, = clustering.pca_mds(distance_matrix_aligned, pca_type="pca")
 
 
 if __name__ == "__main__":

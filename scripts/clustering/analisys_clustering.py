@@ -10,11 +10,11 @@ if project_root not in sys.path:
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from preprocessing.data_transformers import CLRTransformer
-from preprocessing.scaler import SmartScaler
-from preprocessing.preprocess import Preprocessor
-from fileio.df_loader import dataloader
-from clustering.clustering import Clustering
+from preprocessing import CLRTransformer, SmartScaler, Preprocessor
+from analysis import Clustering
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def analysis_clustering():
@@ -27,18 +27,23 @@ def analysis_clustering():
     ref_dataset, ref_taxa_cols, ref_meta_cols = dataloader.load_dataset(dataset_path)
 
     # Load target dataset (Modenesi)
-    modenesi = dataloader.load_dataset(modenesi_dataset_path, sanitize=False,
-                                                drop_response=False, index_col=0)
+    modenesi = dataloader.load_dataset(modenesi_dataset_path, 
+                                       sanitize = False,
+                                       drop_response = False, 
+                                       index_col = 0)
     
-    # Istance preprocessor with default values
+    # Istance preprocessor
     # config/features.yaml, CLR transformer and Standard Scaler
-    preprocessor = Preprocessor()
+    preprocessor = Preprocessor(
+        transformer = CLRTransformer,
+        scaler = StandardScaler
+    )
 
     # Run preprocessor
     X_ref_taxa, _ = preprocessor.initialize(
-        complete_df=ref_dataset,
-        use_metadata=False,
-        taxa_cols=ref_taxa_cols
+        complete_df = ref_dataset,
+        use_metadata = False,
+        taxa_cols = ref_taxa_cols
     )
 
     # Set to numeric values, if errors set NaN
@@ -51,7 +56,7 @@ def analysis_clustering():
     scaled_modenesi_taxa = scaler.transform(modenesi[ref_taxa_cols].copy())
     
     # Instance clustering class with default conf file
-    clustering = Clustering()
+    clustering = Clustering(dataloader, serializer, plotter)
     
     # Run metadata analysis
     summary_df = clustering.metadata_analysis(scaled_ref_taxa, ref_dataset, ref_meta_cols)

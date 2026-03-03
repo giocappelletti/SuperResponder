@@ -1,84 +1,56 @@
-
 import joblib
 import optuna
-from sklearn.calibration import cross_val_predict
+import sklearn
 import yaml
 import numpy as np
 import pandas as pd
 
+from imblearn.over_sampling import SMOTE
+from sklearn.calibration import cross_val_predict
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score, cross_validate
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, LabelEncoder, RobustScaler, MinMaxScaler
+from sklearn.preprocessing import LabelEncoder, StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from scipy.stats import mode
-from sklearn.metrics import accuracy_score, average_precision_score, classification_report, f1_score, precision_score, recall_score, \
-                            roc_auc_score, roc_curve, precision_recall_curve, auc, confusion_matrix
+from sklearn.metrics import accuracy_score, average_precision_score, classification_report, f1_score, \
+                            precision_score, recall_score, roc_auc_score, roc_curve, precision_recall_curve, auc, confusion_matrix
+from sklearn.decomposition import PCA, KernelPCA
+from typing import Literal
 
-from .suggestion_functions import suggest_xgb_params, suggest_rf_params, suggest_extra_trees_params
-from logger.logger import logger
-from utils.utils import format_param_grid
-from utils.validators import validate_config
-from fileio.serialization import serializer
-from visualization.plotting import plotter
-from preprocessing.data_transformers import CLRTransformer, TSSTransformer
-from preprocessing.preprocess import preprocessor
+from utils import suggest_xgb_params, suggest_rf_params, suggest_extra_trees_params
+from logger import logger
+from utils import format_param_grid, validate_config
+from preprocessing import CLRTransformer, TSSTransformer, RankingFeatureSelector, CompReduction, Preprocessor
 
 
 class Models:
     """
     Class to handle model training, evaluation, and ensemble methods.
-    It provides tools for cross-validation, grid search, and visualization of results.
+    It provides tools for cross-validation, grid search, and visualization of results.    
+    
+    Parameters
+    ----------
+        serializer: Serializer
+            Object to handle data serialization.
+        plotter: Plotter
+            Object to handle data visualization.
+        config_path: str, default "config/models.yaml"
+            Path to the YAML configuration file for models.
     """
 
-    def __init__(self, config_path = "config/models.yaml"):
+    def __init__(self, serializer, plotter, config_path = "config/models.yaml"):
         self.logger = logger
+        self.serializer = serializer
+        self.plotter = plotter
 
         with open(config_path, 'r') as file:
             self.config = yaml.safe_load(file)
         
-
-    def _build_pipeline(self, transf_name, scaler_name, classifier_name):
-        """
-        Dynamic pipeline building based on YAML file.
-        """
-
-        transformation = (
-            CLRTransformer if transf_name == "CLR" else
-            TSSTransformer if transf_name == "TSS" else
-            None
-        )
-
-        scaler = (
-            StandardScaler if scaler_name == "Standard" else
-            RobustScaler if scaler_name == "Robust" else
-            MinMaxScaler if scaler_name == "MinMax" else
-            None
-        )
-
-        classifier = (
-            LogisticRegression if classifier_name == "LogReg" else
-            RidgeClassifier if classifier_name == "Ridge" else
-            SVC if classifier_name == "SVM" else
-            MLPClassifier if classifier_name == "MLP" else
-            XGBClassifier if classifier_name == "XGB" else
-            RandomForestClassifier if classifier_name == "RF" else
-            ExtraTreesClassifier if classifier_name == "ExtraTrees" else
-            None
-        )
-        
-        pipeline = Pipeline([
-            ('transformation', transformation()),
-            ('scaler', scaler()),
-            ('classifier', classifier())
-        ]) 
-
-        return pipeline
-
 
     def _build_param_grid(self, param_grid):
         """
@@ -98,8 +70,6 @@ class Models:
 
         return processed_param_grid
 
-
-    
 
     def _get_model_suggestion_func(self, classifier_name: str):
         """
@@ -121,11 +91,22 @@ class Models:
         return func
 
 
-    def _fit_model_with_grid_search(self, pipeline, train_data, train_labels, param_grid_config, n_folds, njobs, random_state, verbose):
+    def _fit_model_with_grid_search(self, 
+                                    pipeline, 
+                                    train_data, 
+                                    train_labels, 
+                                    param_grid_config, 
+                                    n_folds, 
+                                    njobs, 
+                                    random_state, 
+                                    verbose,
+                                    shuffle):
         """
         Fits the model, optionally performing a GridSearchCV.
         """
+
         best_params = None
+
         if param_grid_config is not None:
             param_grid = self._build_param_grid(param_grid_config)
 
@@ -133,7 +114,7 @@ class Models:
                 estimator = pipeline,
                 param_grid = param_grid,
                 scoring = 'accuracy',
-                cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state),
+                cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state),
                 n_jobs = njobs,
                 verbose = verbose
             )
@@ -142,6 +123,7 @@ class Models:
             grid_search.fit(train_data, train_labels)
             best_model = grid_search.best_estimator_
             best_params = grid_search.best_params_
+        
         else:
             self.logger.info("No param grid found, fitting model without grid search")
             best_model = pipeline
@@ -171,7 +153,15 @@ class Models:
         return y_pred, y_proba
 
 
-    def _perform_cross_validation_analysis(self, best_model, train_data, train_labels, n_folds, scorings, njobs, random_state):
+    def _perform_cross_validation_analysis(self, 
+                                           best_model, 
+                                           train_data, 
+                                           train_labels, 
+                                           n_folds, 
+                                           scorings, 
+                                           njobs, 
+                                           random_state,
+                                           shuffle):
         """
         Performs cross-validation and collects data for ROC and PR curves.
         """
@@ -181,7 +171,7 @@ class Models:
             scorings = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
 
         self.logger.info("Computing cross-validation metrics")
-        cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+        cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state)
 
         cv_results_raw = cross_validate(
             best_model,
@@ -230,10 +220,30 @@ class Models:
                                   'std': round(np.std(cv_results_raw[f'test_{score}']), 2)} 
                           for score in scorings if f'test_{score}' in cv_results_raw}
 
-        return cv_metrics_agg, interp_truepos_list, roc_aucs, prec_rec, y_cv_pred, y_cv_true, mean_falseposrate, mean_recall
+        # TODO check if namedtuple is more suitable
+        results = {
+            'cv_metrics_agg': cv_metrics_agg,
+            'interp_truepos_list': interp_truepos_list,
+            'roc_aucs': roc_aucs,
+            'prec_rec': prec_rec,
+            'y_cv_pred': y_cv_pred,
+            'y_cv_true': y_cv_true,
+            'mean_falseposrate': mean_falseposrate,
+            'mean_recall': mean_recall
+        }
 
+        return results
 
-    def _aggregate_evaluation_metrics(self, train_labels, y_train_pred, y_train_proba, val_labels, y_val_pred, y_val_proba, cv_metrics_agg, splits_label, classifier_name):
+    def _aggregate_evaluation_metrics(self, 
+                                      train_labels, 
+                                      y_train_pred, 
+                                      y_train_proba, 
+                                      val_labels, 
+                                      y_val_pred, 
+                                      y_val_proba, 
+                                      cv_metrics_agg, 
+                                      splits_label, 
+                                      classifier_name):
         """
         Aggregates all calculated metrics into a results dictionary and a DataFrame for plotting.
         """
@@ -287,7 +297,7 @@ class Models:
 
         metrics_df = pd.DataFrame([results['metrics']['train'],
                                    chosen_split_metrics_for_df], # Use the extracted means for DataFrame
-                                   index=['Train', splits_label]).T
+                                   index = ['Train', splits_label]).T
 
         # Prepare data_values for plotting (e.g., for a table)
         # This list is used in the original evaluate_classifier return, so it needs to be populated.
@@ -303,83 +313,98 @@ class Models:
         return results, metrics_df, data_values
 
 
-    def _plot_evaluation_results(self, classifier_name, metrics_df, train_labels, y_train_pred,
-                                 y_true_val_plot, y_pred_val_plot, fpr_train, tpr_train, auc_train,
-                                 cv_roc_results, precision_train, recall_train, ap_train, baseline,
-                                 cv_pr_results, visualize, save, splits_label):
+    def _plot_evaluation_results(self, plot_data):
         """
         Generates and saves/displays all evaluation plots.
         """
-        # 1. Plot Metrics Comparison
-        plotter._plot_metrics_comparison(metrics_df, classifier_name, visualize=visualize, save=save)
 
-        # 2. Plot Confusion Matrices
-        plotter._plot_confusion_matrices(
+        classifier_name = plot_data['classifier_name']
+        metrics_df = plot_data['metrics_df']
+        train_labels = plot_data['train_labels']
+        y_train_pred = plot_data['y_train_pred']
+        y_true_val_plot = plot_data['y_true_val_plot']
+        y_pred_val_plot = plot_data['y_pred_val_plot']
+        fpr_train = plot_data['fpr_train']
+        tpr_train = plot_data['tpr_train']
+        auc_train = plot_data['auc_train']
+        cv_roc_results = plot_data['cv_roc_results']
+        precision_train = plot_data['precision_train']
+        recall_train = plot_data['recall_train']
+        ap_train = plot_data['ap_train']
+        baseline = plot_data['baseline']
+        cv_pr_results = plot_data['cv_pr_results']
+        visualize = plot_data['visualize']
+        save = plot_data['save']
+        splits_label = plot_data['splits_label']
+
+        self.plotter._plot_metrics_comparison(metrics_df, classifier_name, visualize = visualize, save = save)
+
+        self.plotter._plot_confusion_matrices(
             train_labels, y_train_pred,
             y_true_val_plot, y_pred_val_plot,
             classifier_name,
-            val_set_name=splits_label,
-            visualize=visualize,
-            save=save
+            val_set_name = splits_label,
+            visualize = visualize,
+            save = save
         )
 
-        # 3. Plot ROC Curves
         if fpr_train is not None and cv_roc_results is not None:
-            plotter._plot_performance_curves(
-                curve_type='roc',
-                x_data=fpr_train,
-                y_data=tpr_train,
-                metric_train_value=auc_train,
-                cv_results=cv_roc_results,
-                model_name=classifier_name,
-                visualize=visualize,
-                save=save
+            self.plotter._plot_performance_curves(
+                curve_type = 'roc',
+                x_data = fpr_train,
+                y_data = tpr_train,
+                metric_train_value = auc_train,
+                cv_results = cv_roc_results,
+                model_name = classifier_name,
+                visualize = visualize,
+                save = save
             )
         else:
             self.logger.warning("No ROC curves could be plotted")
 
-        # 4. Plot PR Curves
         if precision_train is not None and cv_pr_results is not None:
-            plotter._plot_performance_curves(
-                curve_type='pr',
-                x_data=recall_train,
-                y_data=precision_train,
-                metric_train_value=ap_train,
-                baseline_value=baseline,
-                cv_results=cv_pr_results,
-                model_name=classifier_name,
-                visualize=visualize,
-                save=save
+            self.plotter._plot_performance_curves(
+                curve_type = 'pr',
+                x_data = recall_train,
+                y_data = precision_train,
+                metric_train_value = ap_train,
+                baseline_value = baseline,
+                cv_results = cv_pr_results,
+                model_name = classifier_name,
+                visualize = visualize,
+                save = save
             )
+        
         else:
             self.logger.warning("No Precision-Recall curves could be plotted")
 
 
-    def _save_evaluation_results(self, results, best_model, metrics_df, classifier_name, save_format, save):
+    def _save_evaluation_results(self, results, best_model, metrics_df, classifier_name, save_format):
         """
         Saves the evaluation results (JSON, PKL, metrics DataFrame) to disk.
         """
-        if save:
-            # JSON Results
-            serializer.save_file(results,
-                                 "classifier_results",
-                                 classifier_name,
-                                 "model_evaluation",
-                                 "json")
+        
+        # JSON Results
+        self.serializer.save_file(results,
+                                "classifier_results",
+                                classifier_name,
+                                "model_evaluation",
+                                "json")
 
-            # Model in pickle format
-            serializer.save_file(best_model,
-                                 "classifier_results",
-                                 classifier_name,
-                                 "model_evaluation",
-                                 "pkl")
+        # Model in pickle format
+        self.serializer.save_file(best_model,
+                                "classifier_results",
+                                classifier_name,
+                                "model_evaluation",
+                                "pkl")
 
-            # Metrics DataFrame
-            serializer.save_file(metrics_df,
-                                 "classifier_results",
-                                 classifier_name,
-                                 "model_evaluation",
-                                 save_format)
+        # Metrics DataFrame
+        self.serializer.save_file(metrics_df,
+                                "classifier_results",
+                                classifier_name,
+                                "model_evaluation",
+                                save_format)
+
 
     def _objective(self, trial, x, y, base_pipeline, classifier_name, n_folds, shuffle, random_state, scoring, njobs):
         """
@@ -399,17 +424,17 @@ class Models:
         return score
 
 
-    def _predict(self, best_pipeline, x, y, model_name):
+    def _predict(self, best_pipeline, x, y, random_state, shuffle, n_folds):
         """
         Computes predictions and probabilities on the training set, then performs cross-validation analysis.
         """
 
-        self.logger.info("Predicting on cross-validation folds set")
+        self.logger.info("Predicting on 5 cross-validation folds set")
 
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state)
 
         y_cv_pred = cross_val_predict(best_pipeline, x, y, cv = cv)
-        y_cv_proba_all = cross_val_predict(best_pipeline, x, y, cv = cv, method='predict_proba')
+        y_cv_proba_all = cross_val_predict(best_pipeline, x, y, cv = cv, method = 'predict_proba')
 
         y_cv_proba_class_1 = y_cv_proba_all[:, 1]
 
@@ -469,6 +494,68 @@ class Models:
         return metrics, proba_df
 
 
+    def build_pipeline(self, pipeline_dict: dict = None) -> Pipeline:
+        """
+        Dynamic pipeline building based on YAML file.
+        """
+
+        transf_name = pipeline_dict.get('transformation', None)
+        scaler_name = pipeline_dict.get('scaler', None)
+        classifier_name = pipeline_dict.get('classifier', None)
+        smote = pipeline_dict.get('smote', False)
+        reduction_name = pipeline_dict.get('reduction', None)
+
+        transformation = (
+            CLRTransformer if transf_name == "CLR" else
+            TSSTransformer if transf_name == "TSS" else
+            None
+        )
+
+        scaler = (
+            StandardScaler if scaler_name == "Standard" else
+            RobustScaler if scaler_name == "Robust" else
+            MinMaxScaler if scaler_name == "MinMax" else
+            None
+        )
+
+        classifier = (
+            LogisticRegression if classifier_name == "LogReg" else
+            RidgeClassifier if classifier_name == "Ridge" else
+            SVC if classifier_name == "SVM" else
+            MLPClassifier if classifier_name == "MLP" else
+            XGBClassifier if classifier_name == "XGB" else
+            RandomForestClassifier if classifier_name == "RF" else
+            ExtraTreesClassifier if classifier_name == "ExtraTrees" else
+            None
+        )
+
+        reduction = (
+            CompReduction if reduction_name == "Comp" else
+            PCA if reduction_name == "PCA" else
+            KernelPCA if reduction_name == "KPCA" else
+            None
+        )
+
+        if transformation is None or scaler is None or classifier is None:
+            self.logger.error("Invalid pipeline configuration: \n " \
+                              f"transformation = {transf_name}, scaler = {scaler_name}, classifier = {classifier_name}")
+            raise ValueError()
+            
+        steps = [('transformation', transformation()),
+                 ('scaler', scaler()),
+                 ('classifier', classifier())]
+        
+        if smote:
+            steps.append(('smote', SMOTE()))
+            self.logger.info("SMOTE injected in pipeline") 
+
+        if reduction is not None:
+            steps.append(('reduction', reduction()))
+            self.logger.info(f"Reduction selector injected in pipeline: {reduction.__class__.__name__}")  
+
+        return Pipeline(steps)
+
+
     def evaluate_classifier(self,
                             train_data: pd.DataFrame,
                             train_labels: pd.Series,
@@ -476,7 +563,7 @@ class Models:
                             val_labels: pd.Series = None, 
                             verbose: int = 1,
                             pipeline: Pipeline = None,
-                            param_grid: dict = None):
+                            param_grid: dict = None) -> tuple[Pipeline | sklearn.base.BaseEstimator, dict, pd.DataFrame, list]:
         """
         Evaluates a model using cross-validation.
         If param_grid is passed, computes GridSearchCV on train_data/train_labels.
@@ -504,24 +591,23 @@ class Models:
             
         Returns
         -------
-        best_model: sklearn.base.BaseEstimator
+        best_model: Pipeline or sklearn.base.BaseEstimator
             The best fitted model (or the original pipeline if no grid search).
-        results:
+        results: dict
             JSON object with results, including full CV metrics (mean and std).
         metrics_df: pd.DataFrame
             DataFrame containing the comparison of metrics between train and validation/CV.
-        data_values: List
+        data_values: list
             List of formatted metric values for the chosen split (mean values).
         """
         
         params = validate_config(self.config, "cross_val")
 
-        classifier_name = params.get('classifier', None)
-        transformation_name = params.get('transformation', None)
-        scaler_name = params.get('scaler', None)
+        pipeline_dict = params.get('pipeline', None)
         textual_param_grid = param_grid if param_grid is not None else params.get('param_grid', None)
         n_folds = params.get('n_folds', 5)
-        njobs = params.get('njobs', -1) # Corrected from n_jobs to njobs based on validator
+        njobs = params.get('njobs', -1)
+        shuffle = params.get('shuffle', True)
         save = params.get('save', False)
         visualize = params.get('visualize', True)
         scorings = params.get('scorings', None)
@@ -529,41 +615,54 @@ class Models:
         save_format = params.get('save_format', 'csv')
 
         splits_label = 'val' if (val_data is not None and val_labels is not None) else f'{n_folds}-fold CV'
+        classifier_name = pipeline_dict.get('classifier', None)
 
-        # 2. Build pipeline if not provided
         if pipeline is None:
-            pipeline = self._build_pipeline(transformation_name, scaler_name, classifier_name)
+            pipeline = self.build_pipeline(pipeline_dict)
 
-        # 3. Fit model (with or without grid search)
         best_model, best_params = self._fit_model_with_grid_search(
-            pipeline, train_data, train_labels, textual_param_grid, n_folds, njobs, random_state, verbose
+            pipeline, train_data, train_labels, textual_param_grid, n_folds, njobs, random_state, verbose, shuffle
         )
 
-        # 4. Compute predictions and probabilities for training set
         self.logger.info("Predicting on train set")
         y_train_pred, y_train_proba = self._compute_predictions_and_probas(best_model, train_data)
 
-        # 5. Perform cross-validation analysis
-        cv_metrics_agg, interp_truepos_list, roc_aucs, prec_rec, y_cv_pred, y_cv_true, mean_falseposrate, mean_recall = \
-            self._perform_cross_validation_analysis(best_model, train_data, train_labels, n_folds, scorings, njobs, random_state)
+        # TODO check if namedtuple is more suitable
+        results = self._perform_cross_validation_analysis(best_model, 
+                                                            train_data, 
+                                                            train_labels, 
+                                                            n_folds, 
+                                                            scorings, 
+                                                            njobs, 
+                                                            random_state,
+                                                            shuffle)
 
-        # Total confusion matrix
+        y_cv_pred = results['y_cv_pred']
+        y_cv_true = results['y_cv_true']
+        interp_truepos_list = results['interp_truepos_list']
+        roc_aucs = results['roc_aucs']
+        prec_rec = results['prec_rec']
+        mean_falseposrate = results['mean_falseposrate']
+        mean_recall = results['mean_recall']
+        cv_metrics_agg = results['cv_metrics_agg']
+
         if len(y_cv_true) > 0:
             cm = confusion_matrix(y_cv_true, y_cv_pred)
-            plotter._plot_confusion_matrix(cm, visualize, save)
+            self.plotter._plot_confusion_matrix(cm, visualize, save)
 
-        # 6. Compute predictions and probabilities for validation set (if provided)
-        y_val_pred, y_val_proba = None, None
+        y_val_pred = None
+        y_val_proba = None
+
         if val_data is not None and val_labels is not None:
             self.logger.info("Computing metrics on validation set")
             y_val_pred, y_val_proba = self._compute_predictions_and_probas(best_model, val_data)
 
-        # 7. Aggregate all metrics
         results, metrics_df, data_values = self._aggregate_evaluation_metrics(
             train_labels, y_train_pred, y_train_proba,
             val_labels, y_val_pred, y_val_proba,
             cv_metrics_agg, splits_label, classifier_name
         )
+
         results['param_grid'] = textual_param_grid
         results['best_params'] = best_params
 
@@ -607,7 +706,11 @@ class Models:
                 'std_auc': np.std(roc_aucs) if roc_aucs else None
             }
 
-        precision_train, recall_train, ap_train, baseline = None, None, None, None
+        precision_train = None
+        recall_train = None
+        ap_train = None 
+        baseline = None
+
         if y_train_proba is not None and len(np.unique(train_labels)) > 1:
             precision_train, recall_train, _ = precision_recall_curve(train_labels, y_train_proba)
             ap_train = average_precision_score(train_labels, y_train_proba)
@@ -618,19 +721,35 @@ class Models:
             cv_pr_results = {
                 'mean_recall': mean_recall,
                 'mean_precision': np.mean(prec_rec, axis=0),
-                'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0 # Using roc_aucs as a proxy for AP for now
+                'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0
             }
 
-        # 8. Plot evaluation results
-        self._plot_evaluation_results(
-            classifier_name, metrics_df, train_labels, y_train_pred,
-            y_true_val_plot, y_pred_val_plot, fpr_train, tpr_train, auc_train,
-            cv_roc_results, precision_train, recall_train, ap_train, baseline,
-            cv_pr_results, visualize, save, splits_label
-        )
+        # TODO check if namedtuple is more suitable
+        plot_data = {
+            'classifier_name': classifier_name,
+            'metrics_df': metrics_df,
+            'train_labels': train_labels,
+            'y_train_pred': y_train_pred,
+            'y_true_val_plot': y_true_val_plot,
+            'y_pred_val_plot': y_pred_val_plot,
+            'fpr_train': fpr_train,
+            'tpr_train': tpr_train,
+            'auc_train': auc_train,
+            'cv_roc_results': cv_roc_results,
+            'precision_train': precision_train,
+            'recall_train': recall_train,
+            'ap_train': ap_train,
+            'baseline': baseline,
+            'cv_pr_results': cv_pr_results,
+            'visualize': visualize,
+            'save': save,
+            'splits_label': splits_label
+        }
 
-        # 9. Save evaluation results
-        self._save_evaluation_results(results, best_model, metrics_df, classifier_name, save_format, save)
+        self._plot_evaluation_results(plot_data)
+
+        if save:
+            self._save_evaluation_results(results, best_model, metrics_df, classifier_name, save_format)
 
         return best_model, results, metrics_df, data_values
     
@@ -638,7 +757,7 @@ class Models:
     def evaluate_classifier_with_optuna(self, 
                                         train_data: pd.DataFrame, 
                                         train_labels: pd.Series, 
-                                        pipeline: Pipeline = None):
+                                        pipeline: Pipeline = None) -> tuple[Pipeline, float, dict]:
         """
         Optimizes classifier hyperparameters using Optuna.
 
@@ -666,12 +785,10 @@ class Models:
 
         params = validate_config(self.config, "optuna")
         
-        classifier_name = params.get('classifier', None)
-        transformation_name = params.get('transformation', None)
-        scaler_name = params.get('scaler', None)
+        pipeline_dict = params.get('pipeline', None)
         random_state = params.get('random_state', 42)
         njobs = params.get('njobs', -1)
-        n_trials = params.get('n_trials', 100)
+        n_trials = params.get('n_trials', 10)
         direction = params.get('direction', 'maximize')
         n_folds = params.get('n_folds', 5)
         save = params.get('save', False)
@@ -679,9 +796,10 @@ class Models:
         shuffle = params.get('shuffle', False)
         scoring = params.get('scoring', 'accuracy')
 
+        classifier_name = pipeline_dict.get('classifier', None)
 
         if pipeline is None:
-            pipeline = self._build_pipeline(transformation_name, scaler_name, classifier_name)
+            pipeline = self.build_pipeline(pipeline_dict)
 
         self.logger.info("Optimizing hyperparameters with Optuna")
 
@@ -710,19 +828,18 @@ class Models:
         # Fit the best pipeline on the full training data
         pipeline.fit(train_data, train_labels)
 
-        metrics, proba_df = self._predict(pipeline, train_data, train_labels, classifier_name)
+        metrics, proba_df = self._predict(pipeline, train_data, train_labels)
 
         if save:
             # Save the best pipeline
-            serializer.save_file(pipeline, "optuna_results", classifier_name, "best_pipeline", "pkl")
+            self.serializer.save_file(pipeline, "optuna_results", classifier_name, "best_pipeline", "pkl")
 
             # Save the best parameters
-            serializer.save_file(best_params, "optuna_results", classifier_name, "best_params", "json")
+            self.serializer.save_file(best_params, "optuna_results", classifier_name, "best_params", "json")
 
-            serializer.save_file(proba_df, "optuna_results", classifier_name, "proba_df", save_format)
+            self.serializer.save_file(proba_df, "optuna_results", classifier_name, "proba_df", save_format)
 
-            serializer.save_file(metrics, "optuna_results", classifier_name, "metrics", "json")
-        
+            self.serializer.save_file(metrics, "optuna_results", classifier_name, "metrics", "json")
 
         return pipeline, study.best_value, best_params
 
@@ -735,7 +852,7 @@ class Models:
                              compute_roc: bool = True, 
                              taxa_cols: list = None,
                              visualize: bool = True,
-                             save: bool = False):
+                             save: bool = False) -> dict:
         """
         Performs hard voting ensemble on the given models and dataset.
         
@@ -776,7 +893,7 @@ class Models:
                 self.logger.error(f"Unable to load model from {path}: {e}")
                 raise e
 
-            X_train_full, _ = preprocessor.initialize(
+            X_train_full, _ = Preprocessor().initialize(
                 X_set,
                 taxa_cols
             )
@@ -793,18 +910,18 @@ class Models:
                 decision = lambda X: 1 / (1 + np.exp(-model.decision_function(X)))
                 probs = np.vstack([1 - decision(X_train), decision(X_train)]).T
                 proba_list.append(probs)
-
+        
         pred_array = np.vstack(pred_list)  # shape: (n_models, n_examples)
-        final_pred, _ = mode(pred_array, axis=0)  # scipy.stats.mode
+        final_pred, _ = mode(pred_array, axis = 0)  # scipy.stats.mode
         final_pred = final_pred.flatten()
 
-        avg_proba = np.mean(np.stack(proba_list, axis=0), axis=0)  # (n_examples, n_classes)
+        avg_proba = np.mean(np.stack(proba_list, axis = 0), axis = 0)  # (n_examples, n_classes)
 
         self.logger.info(f"Computing models metrics")
         acc = accuracy_score(Y_set, final_pred)
-        prec = precision_score(Y_set, final_pred, average='binary')
-        rec = recall_score(Y_set, final_pred, average='binary')
-        f1 = f1_score(Y_set, final_pred, average='binary')
+        prec = precision_score(Y_set, final_pred, average = 'binary')
+        rec = recall_score(Y_set, final_pred, average = 'binary')
+        f1 = f1_score(Y_set, final_pred, average = 'binary')
         roc_auc = roc_auc_score(Y_set, avg_proba[:, 1]) if compute_roc else "---"
 
         cm = confusion_matrix(Y_set, final_pred)
@@ -813,14 +930,14 @@ class Models:
         if compute_roc:
             metrics['roc_auc'] = roc_auc
 
-        df_barplot = pd.DataFrame(list(metrics.items()), columns=['Metric', 'Value'])
+        df_barplot = pd.DataFrame(list(metrics.items()), columns = ['Metric', 'Value'])
 
-        confidences = np.max(avg_proba, axis=1)
+        confidences = np.max(avg_proba, axis = 1)
 
         correct = (final_pred == Y_set)
         df_conf = pd.DataFrame({'confidence': confidences, 'correct': correct})
 
-        plotter._plot_models_metrics(cm,
+        self.plotter._plot_models_metrics(cm,
                                      df_barplot,
                                      confidences,
                                      df_conf,
@@ -835,19 +952,20 @@ class Models:
             precision, recall, _ = precision_recall_curve(Y_set, avg_proba[:, 1])
             pr_auc = auc(recall, precision)
         
-            plotter._plot_performance_curves(curve_type='roc',
-                                  x_data=fpr, 
-                                  y_data=tpr, 
-                                  metric_train_value=roc_auc, 
-                                  visualize=visualize, 
-                                  save=save)
-            plotter._plot_performance_curves(curve_type='pr',
-                                 x_data=recall, 
-                                 y_data=precision, 
-                                 metric_train_value=pr_auc,
-                                 baseline_value=(sum(Y_set) / len(Y_set)),
-                                 visualize=visualize, 
-                                 save=save)
+            self.plotter._plot_performance_curves(curve_type = 'roc',
+                                                    x_data = fpr, 
+                                                    y_data = tpr, 
+                                                    metric_train_value = roc_auc, 
+                                                    visualize = visualize, 
+                                                    save = save)
+            
+            self.plotter._plot_performance_curves(curve_type='pr',
+                                                    x_data = recall, 
+                                                    y_data = precision, 
+                                                    metric_train_value = pr_auc,
+                                                    baseline_value = (sum(Y_set) / len(Y_set)),
+                                                    visualize = visualize, 
+                                                    save = save)
 
 
     def pls_feature_importance(self, 
@@ -857,7 +975,7 @@ class Models:
                            n_components: int = 260,
                            head: int = 25,
                            visualize: bool = True,
-                           save: bool = False):
+                           save: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Computes feature importance using PLS regression and VIP scores.        
         
@@ -892,10 +1010,10 @@ class Models:
         # Encode the response variable to numerical format
         le = LabelEncoder()
         y_encoded = le.fit_transform(dataset['response'])
-        dataset_TSS = dataset[taxa_cols].div(dataset[taxa_cols].sum(axis=1), axis=0)
+        dataset_TSS = dataset[taxa_cols].div(dataset[taxa_cols].sum(axis = 1), axis = 0)
 
         self.logger.info("Fitting PLS regression")
-        pls = PLSRegression(n_components=n_components) #260 because 252 cover 90% of variance
+        pls = PLSRegression(n_components = n_components) #260 because 252 cover 90% of variance
         _, _ = pls.fit_transform(dataset_TSS, y_encoded) 
 
         W = pls.x_weights_   # Shape: (n_features, n_components)
@@ -903,18 +1021,71 @@ class Models:
         T = pls.x_scores_    # Projection, Shape: (n_samples, n_components)
 
         # Compute SSY for every component
-        SSY_h = np.sum((T**2) * np.sum(Q**2, axis=0), axis=0)
+        SSY_h = np.sum((T**2) * np.sum(Q**2, axis = 0), axis = 0)
         total_SSY = np.sum(SSY_h)
 
         K = W.shape[0]  # Number of features (K)
         A = W.shape[1]  # Number of components (A)
         
         self.logger.info("Computing VIP scores")
-        vip_scores = np.sqrt((K / A) * np.sum((W**2) * SSY_h, axis=1) / total_SSY)
+        vip_scores = np.sqrt((K / A) * np.sum((W**2) * SSY_h, axis = 1) / total_SSY)
         
         vip_df = pd.DataFrame({
             'feature': X_train.columns,
             'coeffs': vip_scores
-        }).sort_values('coeffs', ascending=False)
+        }).sort_values('coeffs', ascending = False)
 
-        plotter._plot_feature_importance(vip_df.head(head), visualize, save)
+        self.plotter._plot_feature_importance(vip_df.head(head), visualize, save)
+
+
+    def features_importance(self, 
+                            data: pd.DataFrame, 
+                            model_path: str, 
+                            save: bool = False, 
+                            save_format: Literal['csv', 'tsv', 'xlsx'] = 'csv') -> pd.DataFrame:
+        """
+        Computes feature importance scores from a fitted model and saves the results.
+        Parameters
+        ----------
+        data: pd.DataFrame
+            The input features used to train the model.
+        model_path: str
+            Path to the saved model (pkl file).
+        save: bool, default False
+            Whether to save the importance scores to disk.
+        save_format: Literal['csv', 'tsv', 'xlsx'], default 'csv'
+            The format to use when saving the scores.
+
+        Returns
+        -------
+        feat_df: pd.DataFrame
+            DataFrame containing features and their importance scores.
+        """
+
+        self.logger.info("Computing feature importance scores")
+        
+        try:
+            model = joblib.load(model_path)
+            self.logger.info(f"Loaded model from {model_path}")
+
+        except Exception as e:
+            self.logger.error(f"Unable to load model from {model_path}: {e}")
+            raise e
+
+        model = model.named_steps['classifier']
+
+        if not isinstance(model, (RandomForestClassifier, ExtraTreesClassifier, XGBClassifier)):
+            self.logger.error("Feature importance can only be computed for Random Forest, Extra Trees, and XGBoost models")
+            raise AttributeError
+
+        importances = model.feature_importances_
+
+        feature_names = data.columns if isinstance(data, pd.DataFrame) else [f"feature_{i}" for i in range(data.shape[1])]
+
+        feat_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
+        feat_df = feat_df.sort_values(by='Importance', ascending = False)
+
+        if save:
+            self.serializer.save_file(feat_df, "models", "feature_importance_scores", "models", save_format)
+
+        return feat_df

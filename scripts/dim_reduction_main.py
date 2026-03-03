@@ -10,11 +10,12 @@ if project_root not in sys.path:
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-from utils.splitter import Splitter
-from fileio.df_loader import dataloader
-from preprocessing.scaler import SmartScaler
-from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
-from visualization.plotting import plotter
+from utils import Splitter
+from preprocessing import SmartScaler
+from analysis import DimensionalityReduction
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def dimensionality_reduction():
@@ -23,7 +24,7 @@ def dimensionality_reduction():
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     
     # Instance Splitter with default conf file
-    splitter = Splitter()
+    splitter = Splitter(dataloader, serializer)
 
     # Scalers must be fitted on different dataset, thus use two objects to avoid mixing the classes' internal states
     full_scaler = SmartScaler()
@@ -115,13 +116,13 @@ def dimensionality_reduction():
                     color_map=["red", "green"],)
     
     # Plot cumulative variance
-    plotter.plot_cumulative_vars(data = cumulative_vars)
+    plotter.plot_cumulative_vars(data = cumulative_vars, save = True)
 
     # Compute Linear Discriminant Analysis
     results = dim_red.LDA(train_transformed, y_train, test_transformed)
 
     dataframe = pd.DataFrame({'Comp 1': results, 'Response': y_test})
-    plotter.plot_LDA(dataframe, transform_method="CLR")
+    plotter.plot_LDA(dataframe, transform_method = "CLR")
 
 
 if __name__ == "__main__":

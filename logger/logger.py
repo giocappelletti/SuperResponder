@@ -18,11 +18,11 @@ class Logger:
             Logging level
     """
 
-    def __init__(self, name="SuperResponder", log_dir="./logs", level=logging.INFO):
+    def __init__(self, name = "SuperResponder", log_dir = "./logs", level = logging.INFO):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(level)
         
-        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(log_dir, exist_ok = True)
         
         # Formatter for console and file
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -57,5 +57,5 @@ class Logger:
         self.logger.critical(message)
 
 
-# Create a single, module-level instance of the Logger with predefined init vars
+# Singleton
 logger = Logger()

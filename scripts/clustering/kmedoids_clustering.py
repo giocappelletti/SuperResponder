@@ -9,26 +9,25 @@ if project_root not in sys.path:
 
 from sklearn.preprocessing import StandardScaler
 
-from preprocessing.data_transformers import CLRTransformer
-from preprocessing.scaler import SmartScaler
-from preprocessing.preprocess import Preprocessor
-from fileio.df_loader import dataloader
-from clustering.clustering import Clustering
+from preprocessing import CLRTransformer, SmartScaler, Preprocessor
+from analysis.clustering import Clustering
+
+from fileio import dataloader, serializer
+from visualization import plotter
 
 
 def kmedoids_clustering():
 
     # Define file paths
     dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
-    dataset_config_path = os.path.join(project_root, 'config', 'features.yaml')
-    clustering_config_path = os.path.join(project_root, 'config', 'clustering.yaml')
+
+    # Instantiate dependencies
+    clustering_instance = Clustering(dataloader, serializer, plotter)
 
     # Load dataset
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 
-    # Instance preprocessor
     preprocessor = Preprocessor(
-        config_path=dataset_config_path,
         transformer=CLRTransformer,
         scaler=StandardScaler
     )
@@ -44,7 +43,7 @@ def kmedoids_clustering():
     scaled_taxa = SmartScaler().fit_transform(X_taxa)
 
     # Run clustering
-    cluster_df = Clustering(clustering_config_path).kmedoids(scaled_taxa)
+    cluster_df = clustering_instance.kmedoids(scaled_taxa)
 
 
 if __name__ == "__main__":

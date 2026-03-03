@@ -1,7 +1,7 @@
-from logger.logger import logger
+from logger import logger
 
 
-def validate_config_param_type(param_name: str, param_value, expected_type: type) -> bool:
+def validate_config_param_type(param_name: str, param_value, expected_type: type | tuple[type]) -> bool:
     """
     Validates the type of yaml configuration file parameters.
     """
@@ -10,6 +10,11 @@ def validate_config_param_type(param_name: str, param_value, expected_type: type
         logger.warning(f"{param_name} is None, skipping validation")
         return False
     
+    if isinstance(expected_type, tuple):
+        if not any(isinstance(param_value, t) for t in expected_type):
+            logger.error(f"{param_name} must be of type {expected_type}, got {type(param_value).__name__}")
+            raise ValueError(f"Invalid type for {param_name}")
+
     if not isinstance(param_value, expected_type):
         logger.error(f"{param_name} must be of type {expected_type.__name__}, got {type(param_value).__name__}")
         raise ValueError(f"Invalid type for {param_name}")
@@ -18,13 +23,14 @@ def validate_config_param_type(param_name: str, param_value, expected_type: type
 
 
 def validate_dict_of_strings(dict_of_strings: dict):
-    """
+    """ 
     Validates a dict of lists of strings.
     """
     for k, v in dict_of_strings.items():
-        if validate_config_param_type(k, v, list):
-            for s in v:
-                validate_config_param_type("string", s, str)
+        if validate_config_param_type(k, v, (list, str, bool)):
+            if isinstance(v, list):
+                for s in v:
+                    validate_config_param_type("string", s, str)
 
 
 def validate_config(config: dict, section: str) -> dict:
@@ -199,27 +205,6 @@ def validate_config(config: dict, section: str) -> dict:
         if params["learning_rate"] < 0:
             logger.error(f"learning_rate must be >= 0, got {params['learning_rate']}")
             raise ValueError()
-    
-    if "classifier" in needed:
-        params["classifier"] = s_config.get('classifier', None)
-        if params["classifier"] not in ['LogReg', 'Ridge', 'SVM', 'MLP', 'XGB', 'RF', 'ExtraTrees']:
-            logger.error(f"Unsupported model: {params['classifier']}")
-            logger.info("Supported models: LogReg, Ridge, SVM, MLP")
-            raise ValueError()
-
-    if "transformation" in needed:
-        params["transformation"] = s_config.get('transformation', None)
-        if params["transformation"] not in ['CLR', 'TSS']:
-            logger.error(f"Unsupported transformation: {params['transformation']}")
-            logger.info("Supported transformations: CLR, TSS")
-            raise ValueError()
-
-    if "scaler" in needed:
-        params["scaler"] = s_config.get('scaler', None)
-        if params["scaler"] not in ['Standard', 'MinMax', 'Robust']:
-            logger.error(f"Unsupported scaler: {params['scaler']}")
-            logger.info("Supported scalers: Standard, MinMax, Robust")
-            raise ValueError()
 
     if "n_folds" in needed:
         params["n_folds"] = s_config.get('n_folds', None)
@@ -232,8 +217,30 @@ def validate_config(config: dict, section: str) -> dict:
         params["param_grid"] = s_config.get('param_grid', None)
         validate_config_param_type("param_grid", params["param_grid"], dict)
 
-    if "scorings" in needed:
+    if "scorings" in needed:    
         params["scorings"] = s_config.get('scorings', None)
         validate_config_param_type("scorings", params["scorings"], list)
+    
+    if "pipeline" in needed:
+        params["pipeline"] = s_config.get('pipeline', None)
+        validate_dict_of_strings(params["pipeline"])
+
+    if "n_trials" in needed:
+        params["n_trials"] = s_config.get('n_trials', 10)
+        validate_config_param_type("n_trials", params["n_trials"], int)
+        if params["n_trials"] < 1:
+            logger.error(f"n_trials must be >= 1, got {params['n_trials']}")
+            raise ValueError()
+    
+    if "direction" in needed:
+        params["direction"] = s_config.get('direction', 'maximize')
+        validate_config_param_type("direction", params["direction"], str)
+        if params["direction"] not in ['maximize', 'minimize']:
+            logger.error(f"Unsupported direction: {params['direction']}")
+            raise ValueError()
+
+    if "scoring" in needed:
+        params["scoring"] = s_config.get('scoring', 'accuracy')
+        validate_config_param_type("scoring", params["scoring"], str)
 
     return params

@@ -1,11 +1,9 @@
-import pandas as pd
-import numpy as np
 import os
 import csv
-import yaml
+import pandas as pd
+import numpy as np
 
-from logger.logger import logger
-from fileio.serialization import serializer
+from logger import logger
 
 class DataLoader:
     """
@@ -13,13 +11,26 @@ class DataLoader:
     
     Parameters
     ----------
+        serializer: Serialization
+            Object to handle data serialization.
         cache_dir: str
             Path for storing cached datasets.
     """
 
-    def __init__(self, cache_dir=".cached_datasets"):
+    def __init__(self, serializer, cache_dir = ".cached_datasets"):
         self.cache_dir = cache_dir
         self.logger = logger
+        self.serializer = serializer
+
+
+    def _get_dataframe(self, dataset: pd.DataFrame | str, drop_response = True, sanitize = True, index_col = None):
+        """
+        Helper method to handle dataset loading.
+        """
+
+        if isinstance(dataset, str):
+            dataset = self.load_dataset(dataset, drop_response, sanitize, index_col = index_col)
+        return dataset
 
 
     def _set_index_to_samples(self, dataset: pd.DataFrame, index: str):
@@ -35,7 +46,7 @@ class DataLoader:
         return dataset
             
 
-    def _load_unifrac(self, df: pd.DataFrame, orig_dataset_path: str, index: str = None):
+    def _load_unifrac(self, df: pd.DataFrame, orig_dataset_path: str):
         """
         Clean unifrac datasets and intersect with original dataset.
         """
@@ -43,10 +54,15 @@ class DataLoader:
         df.index = df.index.str.strip()
         df.columns = df.columns.str.strip()
 
-        orig_dataset = self.load_dataset(orig_dataset_path, drop_response=False, sanitize=False)
-
-        if index is not None:
-            orig_dataset = self._set_index_to_samples(orig_dataset, index)
+        orig_dataset = self.load_dataset(orig_dataset_path, drop_response = False, sanitize = False)
+        
+        # Ensure orig_dataset has 'samples' as its index for proper alignment
+        # The 'samples' column is assumed to contain the unique sample identifiers.
+        if 'samples' in orig_dataset.columns:
+            orig_dataset = orig_dataset.set_index('samples')
+        else:
+            self.logger.warning("The original dataset for Unifrac alignment does not contain a 'samples' \n" \
+                                "column to set as index. Alignment might fail.")
 
         common_samples = orig_dataset.index.intersection(df.index)
         
@@ -80,9 +96,9 @@ class DataLoader:
         """
 
         try:
-            with open(path, 'r', newline='', encoding='utf-8') as f:
+            with open(path, 'r', newline = '', encoding = 'utf-8') as f:
                 sample = f.read(4096)  # Read first 4KB
-                dialect = csv.Sniffer().sniff(sample, delimiters=',;')
+                dialect = csv.Sniffer().sniff(sample, delimiters = ',;')
                 
                 inferred_separator = dialect.delimiter
                 self.logger.info(f"Inferred CSV separator for {os.path.basename(path)}: '{inferred_separator}'")
@@ -92,6 +108,7 @@ class DataLoader:
         except csv.Error:
             self.logger.warning(f"Could not sniff CSV delimiter for {os.path.basename(path)}. Defaulting to comma.")
             return ','
+   
    
     def _sanitize_raw_data(self, df: pd.DataFrame, drop_response = True, index: str = None):
         """
@@ -104,12 +121,12 @@ class DataLoader:
             dataset = self._set_index_to_samples(dataset, index)        
 
         if 'response' in dataset.columns and drop_response:
-            dataset = dataset.drop(columns=['response'])
+            dataset = dataset.drop(columns = ['response'])
 
         taxa_cols = [col for col in dataset.columns if col.startswith('k__')]
         meta_cols = [col for col in dataset.columns if col not in taxa_cols]
 
-        dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors='coerce')
+        dataset[taxa_cols] = dataset[taxa_cols].apply(pd.to_numeric, errors = 'coerce')
 
         return dataset, taxa_cols, meta_cols
     
@@ -194,11 +211,11 @@ class DataLoader:
         try:
             if extension in ['tsv', 'csv']:
                 dataset = pd.read_csv(path, 
-                                      sep=inferred_separator, 
-                                      low_memory=False, 
-                                      decimal=',', 
-                                      engine='c', 
-                                      index_col=index_col)
+                                      sep = inferred_separator, 
+                                      low_memory = False, 
+                                      decimal = ',', 
+                                      engine = 'c', 
+                                      index_col = index_col)
             
             else:
                 raise ValueError(f"Unsupported file extension: {extension}")
@@ -212,7 +229,7 @@ class DataLoader:
             raise
         
         if cache_dataset:
-            serializer.cache_dataset(dataset, os.path.basename(base_name))
+            self.serializer.cache_dataset(dataset, os.path.basename(base_name))
         
         if unifrac:
             if orig_dataset_path is None:
@@ -225,7 +242,3 @@ class DataLoader:
             return self._sanitize_raw_data(dataset, drop_response, index)
         else:
             return dataset
-
-
-# Global dataloader instance
-dataloader = DataLoader()

@@ -1,17 +1,16 @@
 import os
 import time
-from typing import Literal
 import warnings
-from matplotlib.lines import Line2D
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+from typing import Literal
+from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 
-from logger.logger import logger
-from utils.utils import sanitize_filename
-
+from logger import logger
 
 class Plotter:
     """
@@ -19,30 +18,13 @@ class Plotter:
 
     Parameters
     ----------
-        output_dir (str): Plots save directory.
+        serializer: Serializer
+            The Serializer instance used to save plots.
     """
-    def __init__(self, output_dir="plots"):
-        self.output_dir = output_dir
+
+    def __init__(self, serializer):
         self.logger = logger
-
-    def _save(self, fig, subfolder, exp_name, metric_name, bbox_inches=None):
-        """
-        Saves the plot to a file with metric-specific naming.
-        """
-
-        out_path = os.path.join(self.output_dir, subfolder, f"{time.strftime('%Y%m%d_%H%M%S')}", exp_name)
-        os.makedirs(out_path, exist_ok=True)
-        
-        safe_name = sanitize_filename(metric_name)
-        dest_name = f"{exp_name}_{safe_name}" if exp_name != safe_name else f"{safe_name}"
-        save_path = os.path.join(out_path, f"{dest_name}.png")
-        
-        try: 
-            fig.savefig(save_path, dpi=300, bbox_inches=bbox_inches) 
-            self.logger.info(f"Plot saved to: {save_path}")
-        
-        except Exception as e:
-            self.logger.warning(f"Error saving plot to: {save_path}: {e}")
+        self.serializer = serializer
 
 
     def _compute_rows_cols(self, num_values):
@@ -71,26 +53,31 @@ class Plotter:
         # Close all existing figures to prevent implicit figure creation issues
         # when plt.show() is called repeatedly in a loop.
         plt.close('all')
-        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 8, nrows * 5),
-                                 squeeze=False, subplot_kw={'projection': projection})
+        
+        fig, axes = plt.subplots(nrows, 
+                                 ncols, 
+                                 figsize = (ncols * 8, nrows * 5),
+                                 squeeze = False, 
+                                 subplot_kw = {'projection': projection})
+        
         fig.canvas.manager.set_window_title(title)
       
         return fig, axes.flatten(), num_values
     
 
-    def _close_plot(self, visualize, save, metric_name, subfolder, exp_name, fig, tight_layout=True):
+    def _close_plot(self, visualize, save, metric_name, subfolder, exp_name, fig, tight_layout = True):
         """
         Sets tight layout and closes the current plot.
         """
         if tight_layout:
-            fig.tight_layout(h_pad=2, w_pad=2) # Operate on the specific figure
+            fig.tight_layout(h_pad = 2, w_pad = 2)
 
         if visualize:
             self.logger.info("Displaying plot")
             plt.show()
         
         if save:
-            self._save(fig, subfolder, exp_name, metric_name, bbox_inches='tight') # Pass fig to _save
+            self.serializer.save_plot(fig, subfolder, exp_name, metric_name, bbox_inches = 'tight') 
             
         plt.close(fig)
 
@@ -109,27 +96,27 @@ class Plotter:
         """
         
         # Initialize subplots using _init_plot
-        fig, axes, _ = self._init_plot([None, None], f"Clustering Analysis") # Pass a dummy list of 2 items to ensure 2 subplots
+        fig, axes, _ = self._init_plot([None, None], f"Clustering Analysis")
 
         for i in range(len(axes)):
-            axes[i].grid(True, linestyle="--", alpha=0.6)
+            axes[i].grid(True, linestyle = "--", alpha = 0.6)
             axes[i].set_xticks(tick_values)
             axes[i].set_xlabel("Number of clusters (k)")
 
         # Elbow Plot
-        axes[0].plot(ks, inertias, marker='o', color='royalblue', linewidth=2)
+        axes[0].plot(ks, inertias, marker = 'o', color = 'royalblue', linewidth = 2)
         axes[0].set_ylabel("Inertia")
         axes[0].set_title(f"Elbow Method\nDistance: {metric_name}") 
 
         # Silhouette Plot
-        axes[1].plot(ks, silhouettes, marker='s', color='forestgreen', linewidth=2)
+        axes[1].plot(ks, silhouettes, marker = 's', color = 'forestgreen', linewidth = 2)
         axes[1].set_ylabel("Average Silhouette Score")
         axes[1].set_title(f"Silhouette Method\nDistance: {metric_name}")
 
         self._close_plot(visualize, save, metric_name, "clustering", "elbow_silhouette", fig)
             
 
-    def _plot_contingencies(self, contingencies, cols, distance_name, visualize=True, save=False):
+    def _plot_contingencies(self, contingencies, cols, distance_name, visualize = True, save = False):
         """
         Plots computed contingencies.
         """
@@ -144,23 +131,23 @@ class Plotter:
             num_categories = len(contingency_prop.columns)
             show_legend = num_categories <= 15 
             
-            contingency_prop.plot(kind='bar', stacked=True, ax=ax, legend=show_legend) 
+            contingency_prop.plot(kind = 'bar', stacked = True, ax = ax, legend = show_legend) 
             
-            ax.set_title(f"{col} Distribution\n(Distance: {distance_name})", fontsize=12)
+            ax.set_title(f"{col} Distribution\n(Distance: {distance_name})", fontsize = 12)
             ax.set_ylabel("Proportion on total")
             ax.set_xlabel("Cluster")
             
-            ax.tick_params(axis='x', rotation=45)
+            ax.tick_params(axis = 'x', rotation = 45)
 
             if show_legend:
-                ax.legend(title=col, loc='upper left', bbox_to_anchor=(1, 1), fontsize='small')
+                ax.legend(title = col, loc = 'upper left', bbox_to_anchor = (1, 1), fontsize = 'small')
             else:
-                ax.set_title(f"{col} (Legend hidden - {num_categories} cats)\nDistance: {distance_name}", color='red')
+                ax.set_title(f"{col} (Legend hidden - {num_categories} cats)\nDistance: {distance_name}", color = 'red')
         
         for j in range(num_contingencies, len(axes)):
             fig.delaxes(axes[j])
 
-        self._close_plot(visualize, False, distance_name, "clustering", "metadata_analysis", fig)
+        self._close_plot(visualize, save, distance_name, "clustering", "metadata_analysis", fig)
 
 
     def _plot_pca_mds(self, k_values, fitted, medoids, labels, metric, visualize, pca_type, n_components, save):
@@ -177,15 +164,15 @@ class Plotter:
             fitted_coords = [fitted[:, j] for j in range(n_components)]
             medoid_coords = [medoids[i][:, j] for j in range(n_components)]
 
-            scatter = ax.scatter(*fitted_coords, c=current_labels, cmap="tab10", alpha=0.7)
-            ax.scatter(*medoid_coords, color="black", marker="X", s=150, label="Medoids")
+            scatter = ax.scatter(*fitted_coords, c = current_labels, cmap = "tab10", alpha = 0.7)
+            ax.scatter(*medoid_coords, color = "black", marker = "X", s = 150, label = "Medoids")
             
-            ax.set_title(f"Cluster {pca_type.capitalize()} {n_components}D — {metric} — k={k}")
+            ax.set_title(f"Cluster {pca_type.capitalize()} {n_components}D — {metric} — k = {k}")
             ax.set_xlabel("Dim 1")
             ax.set_ylabel("Dim 2")
             if n_components == 3:
                 ax.set_zlabel("Dim 3")
-            ax.legend(*scatter.legend_elements(), title="Cluster")
+            ax.legend(*scatter.legend_elements(), title = "Cluster")
         
         for j in range(num_values, len(axes)):
             fig.delaxes(axes[j])
@@ -193,18 +180,18 @@ class Plotter:
         self._close_plot(visualize, save, f"{pca_type}_{n_components}D", "clustering", f"{pca_type}_{n_components}D", fig)
         
 
-    def _plot_stability_ari(self, matrices_data, distance, k, visualize=True):
+    def _plot_stability_ari(self, matrices_data, distance, k, visualize = True):
         """
         Plots stability heatmaps for ARI and Fowlkes-Mallows metrics.
         matrices_data: list of (matrix, name) tuples, e.g., [(ari_matrix, "ARI"), (fm_matrix, "Fowlkes-Mallows")]
         """
 
-        fig, axes, num_plots = self._init_plot(matrices_data, f"Clustering Stability - {distance} distance - k={k}")
+        fig, axes, num_plots = self._init_plot(matrices_data, f"Clustering Stability - {distance} distance - k = {k}")
 
         for i, (matrix, name) in enumerate(matrices_data):
             ax = axes[i]
-            sns.heatmap(matrix, annot=True, fmt=".3f", cmap="coolwarm", square=True, ax=ax)
-            ax.set_title(f"Cluster Stability ({name})\nDistance: {distance}, k={k}")
+            sns.heatmap(matrix, annot = True, fmt = ".3f", cmap = "coolwarm", square = True, ax = ax)
+            ax.set_title(f"Cluster Stability ({name})\nDistance: {distance}, k = {k}")
             ax.set_xlabel("Fold")
             ax.set_ylabel("Fold")
 
@@ -221,23 +208,31 @@ class Plotter:
                            target_name, 
                            visualize, 
                            save, 
-                           set_index=None, 
-                           index=None, 
-                           fmt=".2f", 
-                           labels=None):
+                           set_index = None, 
+                           index = None, 
+                           fmt = ".2f", 
+                           labels = None):
+        """
+        Plots a full heatmap.
+        """
         
         fig, _, _ = self._init_plot([None], title)
         df = data.set_index('Column')[[index]] if set_index else data
         
+        if labels is None:
+            labels = False
+            
         sns.heatmap(df, 
-                    annot=True, 
-                    cmap='coolwarm', 
-                    fmt=fmt, 
-                    linewidths=0.5, 
-                    cbar_kws={'label': index}, 
-                    xticklabels=labels, 
-                    yticklabels=labels)
+                    annot = True, 
+                    cmap = 'coolwarm', 
+                    fmt = fmt, 
+                    linewidths = 0.5, 
+                    cbar_kws = {'label': index}, 
+                    xticklabels = labels, 
+                    yticklabels = labels)
+        
         plt.title(title)
+
         self._close_plot(visualize, 
                          save,
                          f"heatmap_{target_name}", 
@@ -247,10 +242,14 @@ class Plotter:
 
 
     def _plot_barplot(self, title, data, x, y, ylim, model_name, visualize, save):
+        """
+        Plots a barplot.
+        """
         
         fig, _, _ = self._init_plot([None], title)
-        sns.barplot(data=data, x=x, y=y, color='blue')
+        sns.barplot(data = data, x = x, y = y, color = 'blue')
         plt.ylim(ylim)
+        
         self._close_plot(visualize,
                          save,
                          f"barplot_{model_name}",
@@ -260,11 +259,15 @@ class Plotter:
 
     
     def _plot_histplot(self, title, data, bins, xlabel, ylabel, model_name, visualize, save):
+        """
+        Plots a histogram.
+        """
 
         fig, _, _ = self._init_plot([None], title)
-        sns.histplot(data, bins=bins, kde=True, color='skyblue')
+        sns.histplot(data, bins = bins, kde = True, color = 'skyblue')
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
+        
         self._close_plot(visualize,
                          save,
                          f"histplot_{model_name}",
@@ -274,9 +277,12 @@ class Plotter:
         
     
     def _plot_boxplot(self, title, data, x, y, xlabel, ylabel, xticks, model_name, visualize, save):
+        """
+        Plots a boxplot.
+        """
 
         fig, _, _ = self._init_plot([None], title)
-        sns.boxplot(x=x, y=y, data=data)
+        sns.boxplot(x = x, y = y, data = data)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.xticks(xticks[0], xticks[1])
@@ -288,25 +294,13 @@ class Plotter:
                          fig)
 
 
-    def plot_metadata_correlation(self, 
+    def _plot_metadata_correlation(self, 
                                   p_matrix: pd.DataFrame, 
                                   chi2_matrix: pd.DataFrame, 
                                   visualize: bool = True, 
                                   save: bool = False):
         """
         Plots heatmaps for p-values and chi-squared statistics from metadata correlation analysis.
-
-        Parameters
-        ----------
-            p_matrix: pd.DataFrame
-                Matrix of -log10(p-values).
-            chi2_matrix: pd.DataFrame
-                Matrix of chi-squared statistics.
-            visualize: bool, default True
-                Whether to display the plot.
-            save: bool, default False
-                Whether to save the plot to disk.
-                
         """
 
         title = "Chi-squared P-values Heatmap"
@@ -316,21 +310,24 @@ class Plotter:
         self._plot_heatmap_full(title.replace("P-", ""), chi2_matrix, 'Chi-squared', 'metadata', visualize, save, False)
         
 
-    def plot_cramers_v(self,
+    def _plot_cramers_v(self,
                        data: pd.DataFrame,
                        target_name: str,
                        visualize: bool = True,
                        save: bool = False):
-        
-        fig = plt.figure(figsize=(20, 10)) 
+        """
+        Plots Cramer's V analysis results with a bar plot and heatmaps.
+        """
+
+        fig = plt.figure(figsize = (20, 10)) 
         gs = fig.add_gridspec(2, 3) 
 
         # Plot 1: P-value bar plot
         ax0 = fig.add_subplot(gs[0, :]) 
-        sns.barplot(data=data, x='Column', y='P-value', color='blue', ax=ax0)
-        ax0.axhline(0.05, color='red', linestyle='--', label='P-value threshold (0.05)')
+        sns.barplot(data = data, x = 'Column', y = 'P-value', color = 'blue', ax = ax0)
+        ax0.axhline(0.05, color = 'red', linestyle = '--', label = 'P-value threshold (0.05)')
         ax0.set_title(f"P-value for each column")
-        ax0.tick_params(axis='x', rotation=45)
+        ax0.tick_params(axis = 'x', rotation = 45)
         ax0.legend()
         ax0.set_xlabel("") # Remove x-label to reduce clutter
         ax0.set_ylabel("P-value")
@@ -342,17 +339,35 @@ class Plotter:
 
         # Plot 2: P-value Heatmap
         ax1 = fig.add_subplot(gs[1, 0]) 
-        sns.heatmap(df_p_value, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'P-value'}, ax=ax1)
+        sns.heatmap(df_p_value, 
+                    annot = True, 
+                    cmap = 'coolwarm',
+                    fmt = ".2f", 
+                    linewidths = 0.5, 
+                    cbar_kws = {'label': 'P-value'},
+                    ax = ax1)
         ax1.set_title(f"P-value Heatmap")
 
         # Plot 3: Chi-Squared Heatmap
         ax2 = fig.add_subplot(gs[1, 1]) 
-        sns.heatmap(df_chi2, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': 'Chi-Squared'}, ax=ax2)
+        sns.heatmap(df_chi2, 
+                    annot = True, 
+                    cmap = 'coolwarm', 
+                    fmt = ".2f", 
+                    linewidths = 0.5, 
+                    cbar_kws = {'label': 'Chi-Squared'}, 
+                    ax = ax2)
         ax2.set_title(f"Chi-Squared Heatmap")
 
         # Plot 4: Cramer's V Heatmap
         ax3 = fig.add_subplot(gs[1, 2]) 
-        sns.heatmap(df_cramers_v, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5, cbar_kws={'label': "Cramer's V"}, ax=ax3)
+        sns.heatmap(df_cramers_v, 
+                    annot = True, 
+                    cmap = 'coolwarm', 
+                    fmt = ".2f", 
+                    linewidths = 0.5, 
+                    cbar_kws = {'label': "Cramer's V"}, 
+                    ax = ax3)
         ax3.set_title(f"Cramer's V Heatmap")
 
         # Close the entire figure
@@ -445,18 +460,18 @@ class Plotter:
                     for label_val in unique_labels:
                         if label_val < len(color_map): # Ensure index is valid
                             color = color_map[label_val]
-                            legend_handles.append(Line2D([0], [0], marker='o', color='w',
-                                                         markerfacecolor=color, markersize=10))
+                            legend_handles.append(Line2D([0], [0], marker = 'o', color = 'w', markerfacecolor = color, markersize = 10))
                             legend_labels.append("Responder" if label_val == 1 else "Non-Responder") # Using numerical label as string
-                    ax.legend(handles=legend_handles, labels=legend_labels, title="Labels")
+                    ax.legend(handles = legend_handles, labels = legend_labels, title = "Labels")
+                
                 else:
                     # Use scatter.legend_elements() for numerical 'c' values and a colormap
                     with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", category=UserWarning)
-                        ax.legend(*scatter.legend_elements(), title="Labels")
+                        warnings.filterwarnings("ignore", category = UserWarning)
+                        ax.legend(*scatter.legend_elements(), title = "Labels")
             else:
                 # Default to gray if no labels or labels don't match
-                ax.scatter(*coords, alpha=0.85, c=['gray'] * princ_vals.shape[0])
+                ax.scatter(*coords, alpha = 0.85, c = ['gray'] * princ_vals.shape[0])
 
             if per_comp is not None:
                 ax.set_xlabel(f"1st comp {per_comp[0] * 100}")
@@ -512,7 +527,7 @@ class Plotter:
 
         fig, _, _ = self._init_plot([None], "Cumulative Explained Variance")
 
-        plt.grid(True, linestyle='--', alpha=0.3, zorder=0)
+        plt.grid(True, linestyle = '--', alpha = 0.3, zorder = 0)
 
         for method, variances in valid_variances.items():
             x = np.arange(1, len(variances) + 1)
@@ -524,34 +539,34 @@ class Plotter:
             else:
                 label = method
 
-            plt.plot(x, variances, label=label, linewidth=2, zorder=3)
+            plt.plot(x, variances, label = label, linewidth = 2, zorder = 3)
 
             # Number of components to reach threshold and annotate
             threshold_reached_indices = np.where(variances >= threshold)[0]
             if threshold_reached_indices.size > 0:
                 n_comp = threshold_reached_indices[0] + 1
 
-                plt.scatter(n_comp, variances[n_comp - 1], color='darkred', s=40, zorder=5)
+                plt.scatter(n_comp, variances[n_comp - 1], color = 'darkred', s = 40, zorder = 5)
 
                 plt.annotate(f'{n_comp}',
-                            xy=(n_comp, variances[n_comp - 1]),
-                            xytext=(6, -10),
-                            textcoords='offset points',
-                            fontsize=9,
-                            color='darkred',
-                            bbox=dict(boxstyle='round,pad=0.3',
-                            facecolor='white',
-                            edgecolor='white',
-                            alpha=0.8))
+                            xy = (n_comp, variances[n_comp - 1]),
+                            xytext = (6, -10),
+                            textcoords = 'offset points',
+                            fontsize = 9,
+                            color = 'darkred',
+                            bbox = dict(boxstyle='round,pad=0.3',
+                            facecolor = 'white',
+                            edgecolor = 'white',
+                            alpha = 0.8))
             else:
                 self.logger.warning(f"Threshold {threshold*100}% not reached for method '{method}'. No annotation will be plotted.")
 
-        plt.axhline(y=threshold, color='black', linestyle=':', linewidth=1.5, alpha=0.8, label=f'Threshold {threshold*100}%')
+        plt.axhline(y = threshold, color = 'black', linestyle = ':', linewidth = 1.5, alpha = 0.8, label = f'Threshold {threshold*100}%')
 
         plt.xticks(np.arange(1, max_n + 1, max(1, max_n // 10)))
         plt.yticks(np.arange(0, 1.01, 0.1))
-        plt.xlabel('Components', fontsize=12)
-        plt.ylabel('Cumulative Variance', fontsize=12)
+        plt.xlabel('Components', fontsize = 12)
+        plt.ylabel('Cumulative Variance', fontsize = 12)
         plt.legend()
         
         self._close_plot(visualize, 
@@ -592,21 +607,21 @@ class Plotter:
             palette = {0: "red", 1: "green"}
 
         sns.kdeplot(
-            data=data,
-            x='Comp 1',
-            hue='Response',
-            fill=True,
-            alpha=0.4,
+            data = data,
+            x = 'Comp 1',
+            hue = 'Response',
+            fill = True,
+            alpha = 0.4,
             palette = palette,
-            legend=False
+            legend = False
         )
 
         legend_elements = [
-            Line2D([0], [0], marker='o', color='w', label='Non Responder', markerfacecolor='red', markersize=7),
-            Line2D([0], [0], marker='o', color='w', label='Responder', markerfacecolor='green', markersize=7)
+            Line2D([0], [0], marker = 'o', color = 'w', label = 'Non Responder', markerfacecolor = 'red', markersize = 7),
+            Line2D([0], [0], marker = 'o', color = 'w', label = 'Responder', markerfacecolor = 'green', markersize = 7)
         ]
 
-        plt.legend(handles=legend_elements)
+        plt.legend(handles = legend_elements)
         plt.xlabel('Component 1')
         plt.ylabel('Density')
         plt.title(f'Linear Discriminant Analysis ({transform_method.upper()})')
@@ -620,31 +635,33 @@ class Plotter:
         """
         fig, ax, _ = self._init_plot([None], "Confusion Matrix")
 
-        ConfusionMatrixDisplay(confusion_matrix=confusion_matrix).plot(ax=ax[0])
+        ConfusionMatrixDisplay(confusion_matrix=confusion_matrix).plot(ax = ax[0])
         ax[0].set_title("Confusion Matrix")
        
-        self._close_plot(True, False, "confusion_matrix", "classification", "confusion_matrix", fig)
+        self._close_plot(visualize, save, "confusion_matrix", "classification", "confusion_matrix", fig)
         
 
     def _plot_confusion_matrices(self,
-                                y_true_train, y_pred_train,
-                                y_true_val, y_pred_val,
+                                y_true_train, 
+                                y_pred_train,
+                                y_true_val, 
+                                y_pred_val,
                                 model_name,
-                                val_set_name="Validation",
-                                visualize=True,
-                                save=False):
+                                val_set_name = "Validation",
+                                visualize = True,
+                                save = False):
         """
         Plots confusion matrices for training and validation/CV sets.
         """
         fig, axes, _ = self._init_plot([None, None], f"Confusion Matrices for {model_name}")
 
         # Train Confusion Matrix
-        ConfusionMatrixDisplay.from_predictions(y_true_train, y_pred_train, ax=axes[0], cmap='Blues')
+        ConfusionMatrixDisplay.from_predictions(y_true_train, y_pred_train, ax = axes[0], cmap = 'Blues')
         axes[0].set_title('Train Set')
 
         # Validation/CV Confusion Matrix
         if y_true_val is not None and y_pred_val is not None:
-            ConfusionMatrixDisplay.from_predictions(y_true_val, y_pred_val, ax=axes[1], cmap='Blues')
+            ConfusionMatrixDisplay.from_predictions(y_true_val, y_pred_val, ax = axes[1], cmap = 'Blues')
             axes[1].set_title(f'{val_set_name} Set')
         else:
             # Hide the second subplot if no validation data
@@ -653,19 +670,19 @@ class Plotter:
         self._close_plot(visualize, save, f"confusion_matrix_{model_name}", "classification", model_name, fig)
 
 
-    def _plot_metrics_comparison(self, metrics_df: pd.DataFrame, model_name: str, visualize=True, save=False):
+    def _plot_metrics_comparison(self, metrics_df: pd.DataFrame, model_name: str, visualize = True, save = False):
         """
         Plots a bar chart comparing different performance metrics.
         """
         fig, ax, _ = self._init_plot([None], f"Metrics Comparison for {model_name}")
 
-        metrics_df.plot(kind='bar', ax=ax[0])
+        metrics_df.plot(kind='bar', ax = ax[0])
         ax[0].set_title(f'Train vs. Validation/CV Metrics')
         ax[0].set_xlabel('Metric')
         ax[0].set_ylabel('Score')
         ax[0].set_ylim(0, 1)
-        ax[0].tick_params(axis='x', rotation=45)
-        ax[0].grid(True, linestyle='--', alpha=0.6)
+        ax[0].tick_params(axis = 'x', rotation = 45)
+        ax[0].grid(True, linestyle = '--', alpha = 0.6)
 
         self._close_plot(visualize, save, f"metrics_comparison_{model_name}", "classification", model_name, fig)
 
@@ -683,6 +700,7 @@ class Plotter:
         """
         Plots ROC or Precision-Recall curves for training and optionally for cross-validation results.
         """
+
         fig, ax, _ = self._init_plot([None], f"{curve_type.upper()} Curve for {model_name}")
 
         # Determine labels and title based on curve_type
@@ -713,7 +731,7 @@ class Plotter:
 
         # Plot Train Curve if data is available
         if x_data is not None and y_data is not None:
-            ax[0].plot(x_data, y_data, label=train_label, lw=2)
+            ax[0].plot(x_data, y_data, label = train_label, lw = 2)
 
         # Plot CV Curve if results are available
         if cv_results:
@@ -723,22 +741,23 @@ class Plotter:
                 mean_metric_cv = cv_results.get('mean_auc')
                 std_metric_cv = cv_results.get('std_auc')
                 if all(v is not None for v in [mean_x_cv, mean_y_cv, mean_metric_cv, std_metric_cv]):
-                    ax[0].plot(mean_x_cv, mean_y_cv, lw=2, label=cv_label_format.format(mean_metric_cv, std_metric_cv))
+                    ax[0].plot(mean_x_cv, mean_y_cv, lw = 2, label = cv_label_format.format(mean_metric_cv, std_metric_cv))
+            
             else: # pr
                 mean_x_cv = cv_results.get('mean_recall')
                 mean_y_cv = cv_results.get('mean_precision')
                 mean_metric_cv = cv_results.get('mean_ap')
                 if all(v is not None for v in [mean_x_cv, mean_y_cv, mean_metric_cv]):
-                    ax[0].plot(mean_x_cv, mean_y_cv, lw=2, label=cv_label_format.format(mean_metric_cv))
+                    ax[0].plot(mean_x_cv, mean_y_cv, lw = 2, label = cv_label_format.format(mean_metric_cv))
 
         # Plot Baseline
-        ax[0].plot(*baseline_plot_args, 'k--', lw=1, label=baseline_label)
+        ax[0].plot(*baseline_plot_args, 'k--', lw = 1, label = baseline_label)
 
         ax[0].set_xlabel(x_label)
         ax[0].set_ylabel(y_label)
         ax[0].set_title(title)
-        ax[0].legend(loc=legend_loc)
-        ax[0].grid(True, linestyle='--', alpha=0.6)
+        ax[0].legend(loc = legend_loc)
+        ax[0].grid(True, linestyle = '--', alpha = 0.6)
 
         if curve_type == 'pr':
             ax[0].set_xlim([0.0, 1.0])
@@ -767,8 +786,8 @@ class Plotter:
             visualize,
             save,
             False,
-            fmt="d",
-            labels=labels,
+            fmt = "d",
+            labels = labels,
         )
 
         self._plot_barplot("Metrics",
@@ -807,13 +826,10 @@ class Plotter:
         """
 
         fig, ax, _ = self._init_plot([None], "Feature Importance")
-        ax[0].barh(data["feature"], data["coeffs"], color="skyblue")
+        ax[0].barh(data["feature"], data["coeffs"], color = "skyblue")
         ax[0].set_xlabel("Score")
         ax[0].set_ylabel("Feature")
         ax[0].set_title(f"Top Feature Importance by scores ({imp_type})")
         ax[0].invert_yaxis()
         self._close_plot(visualize, save, "feature_importance", "classification", "feature_importance", fig, False)
          
-
-# One time initialization of plotter object
-plotter = Plotter()

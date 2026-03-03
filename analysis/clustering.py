@@ -1,7 +1,5 @@
 import warnings
 import yaml
-from typing import Literal
-from collections import namedtuple
 
 import numpy as np
 import pandas as pd
@@ -11,17 +9,13 @@ from sklearn.metrics import silhouette_score, adjusted_rand_score, fowlkes_mallo
 from sklearn.manifold import MDS
 from sklearn.model_selection import ShuffleSplit
 from scipy.spatial.distance import cdist, pdist, squareform
-
+from typing import Literal
+from collections import namedtuple
 from joblib import Parallel, delayed
 
-from logger.logger import logger
-from fileio.serialization import serializer
-from utils.validators import validate_config
-from utils.utils import compute_contingency
-from visualization.plotting import plotter
-from fileio.df_loader import dataloader
-from dimensionality_reduction.dimensionality_reduction import DimensionalityReduction
-
+from logger import logger
+from utils import validate_config, compute_contingency
+from .dim_reduction import DimensionalityReduction
 
 
 class Clustering:
@@ -29,15 +23,22 @@ class Clustering:
     Handles clustering operations and evaluation metrics for microbiome data.
     """
 
-    def __init__(self, config_path="config/clustering.yaml"):
+    def __init__(self, dataloader, serializer, plotter, config_path="config/clustering.yaml"):
         """
         Initializes the Clustering class with configuration, serializer, and plotter.
         
         Parameters
         ----------
+            dataloader: DataLoader
+                Object to handle data loading.
+            serializer: Serializer
+                Object to handle data serialization.
+            plotter: Plotter
+                Object to handle data visualization.
             config_path: str
                 Path to the configuration file
         """
+
         self.logger = logger
         self.dataloader = dataloader
         self.config_path = config_path
@@ -55,34 +56,38 @@ class Clustering:
                                          ['dataset', 'n_clusters', 'metric', 'save', 
                                           'save_format', 'useless_metadata', 'visualize'])
 
+
     def _k_medoids_fit(self, data, n_clusters, metric, random_state):
         """
         Fits K-Medoids clustering.
         """
-        self.logger.info(f"Fitting K-Medoids with k={n_clusters}, metric={metric}")
-        kmedoids = KMedoids(n_clusters, metric, random_state=random_state)
+
+        self.logger.info(f"Fitting K-Medoids with k = {n_clusters}, metric = {metric}")
+        kmedoids = KMedoids(n_clusters, metric, random_state = random_state)
         labels = kmedoids.fit_predict(data)
         return kmedoids, labels
 
+
     @staticmethod
-    def _run_single_k(n_clusters, data, metric, random_state, silhouette=False):
+    def _run_single_k(n_clusters, data, metric, random_state, silhouette = False):
         """
         Runs K-Medoids for a single k value.
         """
-        # This method does not use 'self', so it can be a static method.
-        kmedoids = KMedoids(n_clusters, metric, random_state=random_state).fit(data)
+
+        kmedoids = KMedoids(n_clusters, metric, random_state = random_state).fit(data)
 
         if silhouette:
-            score = silhouette_score(data, kmedoids.labels_, metric=metric) if n_clusters > 1 else np.nan
+            score = silhouette_score(data, kmedoids.labels_, metric = metric) if n_clusters > 1 else np.nan
             return kmedoids.inertia_, score
         
         return kmedoids.medoid_indices_
     
 
-    def _analysis(self, data: np.ndarray, dataset: pd.DataFrame):
+    def _analysis(self, data, dataset):
         """
         Read analysis data from file and computes k medoids.
         """
+
         params = validate_config(self.config, 'analysis')
         
         n_clusters = params['n_clusters']
@@ -96,7 +101,7 @@ class Clustering:
         distance = metric if metric == 'euclidean' else 'precomputed'
 
         if metric == "braycurtis":
-            data = squareform(pdist(data, metric='braycurtis'))
+            data = squareform(pdist(data, metric = 'braycurtis'))
 
         # Perform K-Medoids clustering
         _, labels = self._k_medoids_fit(data, n_clusters, distance, random_state)
@@ -106,6 +111,7 @@ class Clustering:
         dataset['cluster'] = labels
         
         return self.AnalysisResult(dataset, n_clusters, distance, save, save_format, useless_metadata, visualize)
+
 
     def compute_elbow_silhouette(self, data: np.ndarray) -> tuple[tuple, tuple]:
         """
@@ -135,13 +141,13 @@ class Clustering:
         metric = distance if distance == 'euclidean' else 'precomputed'
 
         if distance == 'braycurtis':
-            data = squareform(pdist(data, metric='braycurtis'))
+            data = squareform(pdist(data, metric = 'braycurtis'))
 
-        self.logger.info(f"Computing Elbow and Silhouette scores up to k={max_clusters} using metric={metric}")
+        self.logger.info(f"Computing Elbow and Silhouette scores up to k = {max_clusters} using metric = {metric}")
 
         cluster_range = range(1, max_clusters + 1)
 
-        results = Parallel(n_jobs=njobs)(
+        results = Parallel(n_jobs = njobs)(
             delayed(self._run_single_k)(cluster_idx, data, metric, random_state, silhouette=True) for cluster_idx in cluster_range
         )
 
@@ -149,8 +155,13 @@ class Clustering:
 
         tick_values = np.arange(2, max_clusters + 1, 2)
 
-        self.plotter._plot_elbow_and_silhouette(cluster_range, list(inertias), list(silhouettes),
-                                                tick_values, distance, visualize, save)
+        self.plotter._plot_elbow_and_silhouette(cluster_range, 
+                                                list(inertias), 
+                                                list(silhouettes),
+                                                tick_values, 
+                                                distance, 
+                                                visualize, 
+                                                save)
         return inertias, silhouettes
 
 
@@ -180,7 +191,7 @@ class Clustering:
         working_data = data
         working_metric = metric
         if metric == "braycurtis":
-            working_data = squareform(pdist(data, metric='braycurtis'))
+            working_data = squareform(pdist(data, metric = 'braycurtis'))
             working_metric = 'precomputed'
         elif metric == 'unifrac':
             working_metric = 'precomputed'
@@ -197,17 +208,18 @@ class Clustering:
 
         if save:
             self.serializer.save_file(
-                data=cluster_df,
-                subfolder="kmedoids",
-                exp_type="kmedoids",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data = cluster_df,
+                subfolder = "kmedoids",
+                exp_type = "kmedoids",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
         else:
             self.logger.info(f"Kmedoids groups: {cluster_df}")
 
         return cluster_df
+
 
     def metadata_analysis(self, data: np.ndarray, dataset: pd.DataFrame | str, meta_cols: list) -> pd.DataFrame:
         """
@@ -227,8 +239,8 @@ class Clustering:
                 DataFrame with metadata analysis results
         """
 
-        if isinstance(dataset, str):
-            dataset = self.dataloader.load_dataset(dataset)
+        # Handle paths and DataFrame objects
+        dataset = self.dataloader._get_dataframe(dataset)
 
         res = self._analysis(data, dataset)
 
@@ -260,12 +272,12 @@ class Clustering:
            
             if res.save:
                 time_str = self.serializer.save_file(
-                    data=contingency,
-                    subfolder=f"metadata_analysis/k_{res.n_clusters}_contingencies",
-                    exp_type=f"{col}_contingency",
-                    exp_group="clustering",
-                    save_format=res.save_format,
-                    distance_type=res.metric
+                    data = contingency,
+                    subfolder = f"metadata_analysis/k_{res.n_clusters}_contingencies",
+                    exp_type = f"{col}_contingency",
+                    exp_group = "clustering",
+                    save_format = res.save_format,
+                    distance_type = res.metric
                 )
 
             # chi-squared test
@@ -281,13 +293,13 @@ class Clustering:
 
         if res.save:
             self.serializer.save_file(
-                data=summary_df,
-                subfolder=f"{time_str}/metadata_analysis/k_{res.n_clusters}",
-                exp_type="chi2_summary",
-                exp_group="clustering",
-                save_format=res.save_format,
-                distance_type=res.metric,
-                should_save_time=False
+                data = summary_df,
+                subfolder = f"{time_str}/metadata_analysis/k_{res.n_clusters}",
+                exp_type = "chi2_summary",
+                exp_group = "clustering",
+                save_format = res.save_format,
+                distance_type = res.metric,
+                should_save_time = False
             )
         
         return summary_df
@@ -313,14 +325,11 @@ class Clustering:
         ----------
             tuple (contingency, chi2, p)
             Computed contingency, chi2 and p-value
-                """
+        """
 
-        if isinstance(orig_dataset, str):
-            orig_dataset = self.dataloader.load_dataset(orig_dataset, drop_response=False, sanitize=False)
+        orig_dataset = self.dataloader._get_dataframe(orig_dataset, False, False)
+        dataset = self.dataloader._get_dataframe(dataset, False, False, 0)
         
-        if isinstance(dataset, str):
-            dataset = self.dataloader.load_dataset(dataset, drop_response=False, sanitize=False, index_col=0)
-
         res = self._analysis(data_matrix, dataset)
         
         if 'response' not in orig_dataset.columns:
@@ -332,12 +341,12 @@ class Clustering:
 
         if res.save:
             self.serializer.save_file(
-                data=contingency,
-                subfolder=f"response_analysis/k_{res.n_clusters}_contingencies",
-                exp_type=f"response_contingency",
-                exp_group="clustering",
-                save_format=res.save_format,
-                distance_type=res.metric
+                data = contingency,
+                subfolder = f"response_analysis/k_{res.n_clusters}_contingencies",
+                exp_type = f"response_contingency",
+                exp_group = "clustering",
+                save_format = res.save_format,
+                distance_type = res.metric
             )
         
         self.logger.info(f"Response chi2: {chi2}, p-value: {p}")
@@ -350,9 +359,9 @@ class Clustering:
     def cluster_analysis(self, 
                          data: np.ndarray,
                          ref_data: np.ndarray, 
-                         unifrac_dataframe: pd.DataFrame | str = None,
-                         orig_dataframe: pd.DataFrame | str = None, 
-                         custom_dataframe: pd.DataFrame | str = None) -> pd.DataFrame:
+                         unifrac_dataframe: pd.DataFrame = None,
+                         orig_dataframe: pd.DataFrame = None, 
+                         custom_dataframe: pd.DataFrame = None) -> pd.DataFrame:
         """
         Clustering analysis function to get clustering results of custom data against a reference dataset.
 
@@ -397,7 +406,7 @@ class Clustering:
         fitting_data = ref_data
         
         if distance == "braycurtis":
-            fitting_data = squareform(pdist(ref_data, metric='braycurtis'))
+            fitting_data = squareform(pdist(ref_data, metric = 'braycurtis'))
             metric = 'precomputed'
 
         elif distance == 'unifrac':
@@ -406,7 +415,7 @@ class Clustering:
 
         cluster_distributions = {}
 
-        self.logger.info(f"Computing medoids for k ={k_values} using metric={metric}")
+        self.logger.info(f"Computing medoids for k = {k_values} using metric = {metric}")
 
         medoid_indices = Parallel(n_jobs=njobs)(
             delayed(self._run_single_k)(cluster_idx, fitting_data, metric, random_state) 
@@ -418,7 +427,7 @@ class Clustering:
             
             if distance in ['euclidean', 'braycurtis']:
                 medoid_points = ref_data[current_medoid_indices]
-                dist_to_medoids = cdist(data, medoid_points, metric=distance)
+                dist_to_medoids = cdist(data, medoid_points, metric = distance)
             
             else:
                 medoid_samples = orig_dataframe.index[current_medoid_indices].tolist()
@@ -434,12 +443,12 @@ class Clustering:
 
         if save:
             self.serializer.save_file(
-                data=cluster_df,
-                subfolder="clustering_analysis",
-                exp_type="clustering_analysis",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data = cluster_df,
+                subfolder = "clustering_analysis",
+                exp_type = "clustering_analysis",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
         else:
             self.logger.info(f"Cluster groups: {cluster_df}")
@@ -468,6 +477,7 @@ class Clustering:
         ----------
             DimensionalityReduction.PCA, DimensionalityReduction.PCOA, DimensionalityReduction.KPCA
         """
+
         if pca_type not in ['pca', 'pcoa', 'kpca']:
             self.logger.error(f"pca_type must be either 'pca', 'pcoa' or 'kpca', got {pca_type}")
             raise ValueError
@@ -501,15 +511,17 @@ class Clustering:
             else:
                 self.logger.error(f"With distance {metric} pca_type must be either 'pca' or 'kpca', got {pca_type}")
 
-
         else:
             if metric == 'braycurtis':
-                data = squareform(pdist(data, metric=metric))
+                data = squareform(pdist(data, metric = metric))
             
             if pca_type == 'pca':
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=FutureWarning)
-                    fitted = MDS(n_components=n_components, metric="precomputed", random_state=42, n_init=4).fit_transform(data)
+                    fitted = MDS(n_components = n_components, 
+                                 dismetric = "precomputed", 
+                                 random_state = random_state, 
+                                 n_init = 4).fit_transform(data)
             
             elif pca_type == 'pcoa':
                 fitted = dr.PCOA(data)[0].samples.iloc[:, :n_components].values
@@ -581,18 +593,18 @@ class Clustering:
 
         n_samples = data.shape[0]
 
-        splitter = ShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
+        splitter = ShuffleSplit(n_splits = n_splits, test_size = test_size, random_state = random_state)
         all_labels = []
 
         for fold, (train_idx, _) in enumerate(splitter.split(data)):
             
             train_data = data[train_idx] if distance == 'euclidean' else data[np.ix_(train_idx, train_idx)]
 
-            indices = self._run_single_k(n_clusters, train_data, distance, random_state=fold)
+            indices = self._run_single_k(n_clusters, train_data, distance, random_state = fold)
 
             if distance == 'euclidean':
                 medoids = train_data[indices]
-                labels_complete = [np.argmin(np.linalg.norm(medoids - data[i], axis=1)) for i in range(n_samples)]
+                labels_complete = [np.argmin(np.linalg.norm(medoids - data[i], axis = 1)) for i in range(n_samples)]
 
             elif distance == 'precomputed':
                 labels_complete = [np.argmin(data[i, train_idx][indices]) for i in range(n_samples)]
@@ -622,40 +634,40 @@ class Clustering:
         ari_matrix = pd.DataFrame(ari_matrix)
         fm_matrix = pd.DataFrame(fm_matrix)
 
-        plotter._plot_stability_ari([(ari_matrix, "ARI"), (fm_matrix, "Fowlkes-Mallows")], metric, n_clusters, visualize)
+        self.plotter._plot_stability_ari([(ari_matrix, "ARI"), (fm_matrix, "Fowlkes-Mallows")], metric, n_clusters, visualize)
 
         if save:
             self.serializer.save_file(
-                data=ari_results,
-                subfolder="stability",
-                exp_type="ari_pairwise",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data = ari_results,
+                subfolder = "stability",
+                exp_type = "ari_pairwise",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
             self.serializer.save_file(
-                data=fm_results,
-                subfolder="stability",
-                exp_type="fm_pairwise",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data= fm_results,
+                subfolder = "stability",
+                exp_type = "fm_pairwise",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
             self.serializer.save_file(
-                data=ari_matrix,
-                subfolder="stability",
-                exp_type="ari_matrix",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data = ari_matrix,
+                subfolder = "stability",
+                exp_type = "ari_matrix",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
             self.serializer.save_file(
-                data=fm_matrix,
-                subfolder="stability",
-                exp_type="fm_matrix",
-                exp_group="clustering",
-                save_format=save_format,
-                distance_type=metric
+                data = fm_matrix,
+                subfolder = "stability",
+                exp_type = "fm_matrix",
+                exp_group = "clustering",
+                save_format = save_format,
+                distance_type = metric
             )
 
         return ari_results, fm_results, ari_matrix, fm_matrix

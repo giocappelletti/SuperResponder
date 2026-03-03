@@ -2,10 +2,7 @@ import os
 import yaml
 import pandas as pd
 from sklearn.model_selection import train_test_split
-
-from logger.logger import logger
-from fileio.df_loader import DataLoader
-from fileio.serialization import serializer
+from logger import logger
 from utils.validators import validate_config
 
 
@@ -16,15 +13,22 @@ class Splitter:
 
     Parameters
     ----------
-        config (str): Path to the YAML configuration file.
+        dataloader: object
+            The DataLoader instance used to load datasets.
+        serializer: object
+            The Serializer instance used to save datasets.
+        config: str
+            Path to the YAML configuration file.
     """
-    def __init__(self, config = "config/split.yaml"):
+
+    def __init__(self, dataloader, serializer, config = "config/split.yaml"):
         
         with open (config, "r") as f:
             self.config = yaml.safe_load(f)
 
         self.logger = logger
-        self.dataloader = DataLoader()
+        self.dataloader = dataloader
+        self.serializer = serializer
 
 
     def _cache(self, dataset: pd.DataFrame, path: str):
@@ -34,7 +38,7 @@ class Splitter:
         # Removes "datasets/" from path to avoid redundancy
         root_name = path.split("/")[0]
         dest_path = path.replace(f"{root_name}/", "")
-        serializer.cache_dataset(dataset, dest_path)
+        self.serializer.cache_dataset(dataset, dest_path)
 
 
     def split_train_test(self, dataset: pd.DataFrame | str, cache_dataset = True) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -63,23 +67,27 @@ class Splitter:
         save_format = params['save_format']
         path = params['path']
 
-        if isinstance(dataset, str):
-            dataset = self.dataloader.load_dataset(dataset, sanitize=False, drop_response=False)
+        dataset = self.dataloader._get_dataframe(dataset, False, False)
 
         self.logger.info(f"Splitting dataset into training {(1 - test_size)*100}% and test {test_size*100}% datasets")
 
-        train_set, test_set = train_test_split(dataset, test_size=test_size, stratify=dataset[stratify], 
-                                            random_state=random_state, shuffle=shuffle)
+        train_set, test_set = train_test_split(dataset, 
+                                               test_size = test_size, 
+                                               stratify = dataset[stratify], 
+                                               random_state = random_state,
+                                               shuffle = shuffle)
 
-        train_set = train_set.reset_index(drop=True)
-        test_set = test_set.reset_index(drop=True)
+        train_set = train_set.reset_index(drop = True)
+        test_set = test_set.reset_index(drop = True)
 
         if save:
             train_path = os.path.join(path, "train_set")
             test_path = os.path.join(path, "test_set")
-            os.makedirs(path, exist_ok=True)
-            serializer.write_to_disk(train_set, train_path, save_format, index=False)
-            serializer.write_to_disk(test_set, test_path, save_format, index=False)
+            
+            os.makedirs(path, exist_ok = True)
+            
+            self.serializer.write_to_disk(train_set, train_path, save_format, index = False)
+            self.serializer.write_to_disk(test_set, test_path, save_format, index = False)
             
             if cache_dataset:
                 self._cache(train_set, train_path)
@@ -122,9 +130,7 @@ class Splitter:
         if column_types is None:
             column_types = params['column_types']   # Dict
 
-
-        if isinstance(dataset, str):
-            dataset = self.dataloader.load_dataset(dataset, sanitize=False, drop_response=False)
+        dataset = self.dataloader._get_dataframe(dataset, False, False)
 
         datasets = {}
 
@@ -138,9 +144,9 @@ class Splitter:
                     
                     if save:
                         column_path = os.path.join(path, column)
-                        os.makedirs(column_path, exist_ok=True)
+                        os.makedirs(column_path, exist_ok = True)
                         splitted_path = os.path.join(column_path, f"{col_type}_{dname}")
-                        serializer.write_to_disk(splitted, splitted_path, save_format, index=False)
+                        self.serializer.write_to_disk(splitted, splitted_path, save_format, index = False)
                         
                         if cache_dataset:
                             self._cache(splitted, splitted_path)
@@ -184,11 +190,8 @@ class Splitter:
         sort_by = params['sort_by']
         column_types = params['column_types']   # Dict
 
-        if isinstance(df_collapsed, str):
-            df_collapsed = self.dataloader.load_dataset(df_collapsed, sanitize=False, drop_response=False)
-
-        if isinstance(ref_dataset, str):
-            ref_dataset = self.dataloader.load_dataset(ref_dataset, sanitize=False, drop_response=False)
+        df_collapsed = self.dataloader._get_dataframe(df_collapsed, False, False)
+        ref_dataset = self.dataloader._get_dataframe(ref_dataset, False, False)
 
         filter_condition = pd.Series(True, index=df_collapsed.index)
 
@@ -197,21 +200,22 @@ class Splitter:
             if column in df_collapsed.columns:
                 filter_condition = filter_condition & (~df_collapsed[column].isin(value))
             else:
-                self.logger.warning(f"Column '{column}' specified in collapse config not found in the dataset. Skipping this filter condition.")
+                self.logger.warning(f"Column '{column}' specified in collapse config not found in the dataset." \
+                                    " Skipping this filter condition.")
 
         self.logger.info("Collapsing dataset")
-        df = df_collapsed[filter_condition].sort_values(by=sort_by)
-        ref_df = ref_dataset.sort_values(by=sort_by)
+        df = df_collapsed[filter_condition].sort_values(by = sort_by)
+        ref_df = ref_dataset.sort_values(by = sort_by)
 
         collapsed_dataset = df[df[sort_by].isin(ref_df[sort_by])]
         
         if save:
-            os.makedirs(os.path.join(path, "collapsed"), exist_ok=True)
+            os.makedirs(os.path.join(path, "collapsed"), exist_ok = True)
+            
             collapsed_path = os.path.join(path, "collapsed", dname)
-            serializer.write_to_disk(collapsed_dataset, collapsed_path, save_format, index=False)
+            self.serializer.write_to_disk(collapsed_dataset, collapsed_path, save_format, index = False)
             
             if cache_dataset:
                 self._cache(collapsed_dataset, collapsed_path)
             
         return collapsed_dataset
-    

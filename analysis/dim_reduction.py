@@ -11,18 +11,20 @@ from scipy.spatial.distance import squareform, pdist
 from skbio import DistanceMatrix
 from skbio.stats.ordination import pcoa
 
-from utils.validators import validate_config
-from logger.logger import logger
-
-
+from utils import validate_config
+from logger import logger
 
 
 class DimensionalityReduction:
     """
     Handles dimensionality reduction operations.
+    Parameters
+    ----------
+    config_path : str
+        Path to the configuration file.
     """
 
-    def __init__(self, config_path = "config/dimensionality_reduction.yaml"):
+    def __init__(self, config_path = "config/dim_reduction.yaml"):
         
         with open(config_path, 'r') as file:
             self.config = yaml.safe_load(file)
@@ -30,7 +32,7 @@ class DimensionalityReduction:
         self.logger = logger
 
     
-    def PCA(self, data: np.ndarray):
+    def PCA(self, data: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, PCA]:
         """
         Computes Principal Component Analysys after reading config file.
         
@@ -49,12 +51,18 @@ class DimensionalityReduction:
             pca: PCA
                 PCA object (needed for clustering)
         """
+
         params = validate_config(self.config, 'pca')
+        
         n_components = params['n_components']
         
-        pca = PCA(n_components=n_components)
+        if n_components == -1:
+            pca = PCA()
+            self.logger.info(f"Computing PCA with all components")
 
-        self.logger.info(f"Computing PCA with n_components={n_components}")
+        else:
+            pca = PCA(n_components = n_components)
+            self.logger.info(f"Computing PCA with {n_components} components")
 
         components = pca.fit_transform(data)
 
@@ -63,7 +71,7 @@ class DimensionalityReduction:
         return components, var_ratio, np.cumsum(var_ratio), pca
     
 
-    def KPCA(self, data: np.ndarray):
+    def KPCA(self, data: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Computes Kernel PCA after reading config file.
         
@@ -80,22 +88,30 @@ class DimensionalityReduction:
             cum_per_comp: np.ndarray
                 Cumulative variance per component
         """
+
         params = validate_config(self.config, 'kernelpca')
+        
         n_components = params['n_components']
         kernel = params['kernel']
         gamma = params['gamma']
 
-        kpca = KernelPCA(n_components=n_components, kernel=kernel, gamma=gamma)
-        
-        self.logger.info(f"Computing KPCA with n_components={n_components}, kernel={kernel}, gamma={gamma}")
+        if n_components == -1:
+            kpca = KernelPCA(kernel = kernel, gamma = gamma)
+            self.logger.info(f"Computing KPCA with all components, {kernel} kernel, gamma = {gamma}")
 
+        else:
+            kpca = KernelPCA(n_components = n_components, kernel = kernel, gamma = gamma) 
+            self.logger.info(f"Computing KPCA with {n_components} components, {kernel} kernel, gamma = {gamma}")
+        
         components = kpca.fit_transform(data)
         per_comps = kpca.eigenvalues_ / kpca.eigenvalues_.sum()
 
         return components, per_comps, np.cumsum(per_comps)
     
 
-    def PCOA(self, data: np.ndarray, distance: Literal['braycurtis', 'jensenshannon'] = None):
+    def PCOA(self, 
+             data: np.ndarray, 
+             distance: Literal['braycurtis', 'jensenshannon'] = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Computes Principal Coordinate Analysis after reading config file.
         
@@ -116,20 +132,22 @@ class DimensionalityReduction:
             cum_prop_expl: np.ndarray or pd.Series
                 Cumulative Proportions explained
         """
+
         params = validate_config(self.config, 'pcoa')
+        
         distance = params['metric'] if distance is None else distance
         
         if distance not in ['braycurtis', 'jensenshannon']:
             self.logger.error(f"Distance must be either 'braycurtis' or 'jensenshannon', got {distance}")
             raise ValueError
 
-        data = squareform(pdist(data, metric=distance))
+        data = squareform(pdist(data, metric = distance))
 
-        self.logger.info(f"Computing PCOA with distance={distance}")
+        self.logger.info(f"Computing PCOA with {distance} distance")
 
         # Avoid printing negative eigenvalue warnings
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            warnings.filterwarnings("ignore", category = RuntimeWarning)
             components = pcoa(DistanceMatrix(data))
 
         prop_expl = components.proportion_explained
@@ -137,7 +155,7 @@ class DimensionalityReduction:
         return components, components.samples.values, prop_expl, np.cumsum(prop_expl)
     
 
-    def TSNE(self, data: np.ndarray):
+    def TSNE(self, data: np.ndarray) -> np.ndarray:
         """
         Computes T-Stochastic Neighbour Embedding after reading config file.
         
@@ -150,6 +168,7 @@ class DimensionalityReduction:
             results: np.ndarray 
                 Fitted TSNE
         """
+
         params = validate_config(self.config, 'tsne')
 
         n_components = params['n_components']
@@ -159,17 +178,21 @@ class DimensionalityReduction:
         max_iter = params['max_iter']
         metric = params['metric']
 
-        tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate=learning_rate,
-                    random_state=random_state, max_iter=max_iter, metric=metric)
+        tsne = TSNE(n_components = n_components,
+                    perplexity = perplexity, 
+                    learning_rate = learning_rate,
+                    random_state = random_state, 
+                    max_iter = max_iter, 
+                    metric = metric)
         
-        self.logger.info(f"Computing TSNE with n_components={n_components}, perplexity={perplexity}, "
-                         f"learning_rate={learning_rate}, random_state={random_state}, "
-                         f"max_iter={max_iter}, metric={metric}")
+        self.logger.info(f"Computing TSNE with {n_components} components, perplexity = {perplexity},"
+                         f"learning_rate = {learning_rate}, random_state = {random_state}, "
+                         f"metric = {metric} for {max_iter} max iterations")
 
         return tsne.fit_transform(data)
 
 
-    def PLS_DA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray):
+    def PLS_DA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray) -> np.ndarray:
         """
         Computes Partial Least Squares Discriminant Analysis after reading config file.
         
@@ -186,21 +209,23 @@ class DimensionalityReduction:
             results: np.ndarray 
                 Transformed PLS data.
         """
+
         params = validate_config(self.config, 'pls_regression')
+        
         n_components = params['n_components']
 
-        pls = PLSRegression(n_components=n_components)
+        pls = PLSRegression(n_components = n_components)
 
-        self.logger.info(f"Computing PLS with n_components={n_components}")
+        self.logger.info(f"Computing PLS with {n_components} components")
 
         pls.fit(train_data, train_labels)
 
         return pls.transform(test_data)
 
 
-    def LDA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray,):
+    def LDA(self, train_data: np.ndarray, train_labels: np.ndarray, test_data: np.ndarray) -> np.ndarray:
         """
-        Computes Linear Discriminant Analysis after reading config file.
+        Computes Linear Discriminant Analysis.
 
         Parameters
         ----------
@@ -221,5 +246,3 @@ class DimensionalityReduction:
         self.logger.info(f"Computing LDA")
 
         return lda.fit(train_data, train_labels).transform(test_data).flatten()
-
-        

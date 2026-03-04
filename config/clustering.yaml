@@ -1,6 +1,6 @@
 elbow_silhouette:
   n_clusters: 20
-  metric: 'braycurtis'
+  metric: 'euclidean'
   njobs: -1
   random_state: 42
   visualize: True

@@ -207,15 +207,19 @@ class SmartScaler:
             The specific data transfomer to use (e.g., CLRTransformer).
         scaler: class
             The specific scaler to use (e.g., StandardScaler).
+        with_mean: bool, default=False
+            Whether to center the data before scaling.
+        with_std: bool, default=False
+            Whether to scale the data to unit variance.
     """
 
-    def __init__(self, transformer = CLRTransformer, scaler = StandardScaler):
+    def __init__(self, transformer = CLRTransformer, scaler = StandardScaler, with_mean = True, with_std = True):
         self.logger = logger
         
         self.transformer = transformer()
         self.logger.info(f"Scaler: Using transformer {self.transformer.__class__.__name__}")
         
-        self.scaler = scaler(with_mean = False, with_std = False)
+        self.scaler = scaler(with_mean = with_mean, with_std = with_std)
         self.logger.info(f"Scaler: Using scaler {self.scaler.__class__.__name__}") 
     
 
@@ -233,10 +237,13 @@ class SmartScaler:
             pd.DataFrame: 
                 Scaled and transformed data
         """
+        # Store original column names
+        original_columns = data.columns
 
         transf_data = self.transformer.fit_transform(data)
-        return self.scaler.fit_transform(transf_data)
-
+        scaled_array = self.scaler.fit_transform(transf_data)
+        # Convert back to DataFrame, preserving column names
+        return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)
 
     def transform(self, data) -> pd.DataFrame:
         """
@@ -252,9 +259,12 @@ class SmartScaler:
             pd.DataFrame: 
                 Transformed data
         """
+        # Store original column names
+        original_columns = data.columns
 
         transf_data = self.transformer.transform(data)
-        return self.scaler.transform(transf_data)
+        scaled_array = self.scaler.transform(transf_data)
+        return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)
     
 
     def transform_then_fit_transform(self, data) -> pd.DataFrame:
@@ -271,6 +281,9 @@ class SmartScaler:
             pd.DataFrame: 
                 Scaled and transformed data
         """
+        # Store original column names
+        original_columns = data.columns
 
         transf_data = self.transformer.transform(data)
-        return self.scaler.fit_transform(transf_data)
+        scaled_array = self.scaler.fit_transform(transf_data)
+        return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)

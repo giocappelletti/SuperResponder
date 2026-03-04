@@ -6,7 +6,7 @@ from typing import Literal # Keep this, it's used
 import pandas as pd
 
 from logger import logger
-from utils.utils import _sanitize_filename
+from utils.utils import sanitize_filename
 
 class Serialization:
     """
@@ -141,7 +141,7 @@ class Serialization:
         out_path = os.path.join(self.plot_dir, subfolder, f"{time.strftime('%Y%m%d_%H%M%S')}", exp_name)
         os.makedirs(out_path, exist_ok = True)
         
-        safe_name = _sanitize_filename(metric_name)
+        safe_name = sanitize_filename(metric_name)
         dest_name = f"{exp_name}_{safe_name}" if exp_name != safe_name else f"{safe_name}"
         save_path = os.path.join(out_path, f"{dest_name}.png")
         

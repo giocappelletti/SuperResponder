@@ -29,19 +29,18 @@ def elbow_silhouette():
     dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path)
 
     preprocessor = Preprocessor(
-        transformer=CLRTransformer,
-        scaler=StandardScaler
+        transformer = CLRTransformer,
+        scaler = StandardScaler
     )
     
     # Run preprocessor
-    X_taxa, _ = preprocessor.initialize(
-        complete_df=dataset,
-        use_metadata=False,
-        taxa_cols=taxa_cols
+    scaled_taxa = preprocessor.initialize(
+        complete_df = dataset,
+        use_metadata = False,
+        taxa_cols = taxa_cols,
+        scale_and_transform = True
     )
     
-    # Scale and transform data
-    scaled_taxa = SmartScaler().fit_transform(X_taxa)
 
     # Compute elbow and silhouette scores
     inertia, silhouette = clustering_instance.compute_elbow_silhouette(scaled_taxa)

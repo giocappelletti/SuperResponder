@@ -6,7 +6,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
-from . import CLRTransformer
+from . import CLRTransformer, SmartScaler
 from logger import logger
 from utils.utils import format_pipeline
 from utils.validators import validate_config
@@ -147,7 +147,8 @@ class Preprocessor:
     def initialize(self, 
                    complete_df: pd.DataFrame, 
                    use_metadata: bool = True, 
-                   taxa_cols: list = None) -> tuple[pd.DataFrame, ColumnTransformer]:
+                   taxa_cols: list = None,
+                   scale_and_transform: bool = False) -> tuple[pd.DataFrame, ColumnTransformer]:
         """
         Orchestrates the pipeline setup based on the 'test' logic (metadata vs no metadata).
         
@@ -159,10 +160,17 @@ class Preprocessor:
                 Boolean flag to determine if metadata should be included.
             taxa_cols: list, default=None
                 List of taxonomic columns.
+            scale_and_transform: bool, default=False
+                Whether to apply scaling and transformation immediately.
+                
         Returns
         -------
+            if use_metadata is True:
             tuple (DataFrame, ColumnTransformer)
                 Transformed DataFrame and ColumnTransformer
+            else:
+            pd.DataFrame
+                Transformed DataFrame without metadata
         """
 
         self.logger.info(f"Initializing Preprocessor with {self.transformation.__name__} and {self.scaler.__name__}")
@@ -176,7 +184,11 @@ class Preprocessor:
 
         if not use_metadata:
             # Only taxa, no preprocessing pipeline for metadata
-            return complete_df[taxa_cols], None
+            if scale_and_transform:
+                return SmartScaler(transformer = self.transformation, 
+                                   scaler = self.scaler).fit_transform(complete_df[taxa_cols])
+            
+            return complete_df[taxa_cols]
 
         # Filter features present in the dataframe
         features_to_keep = [col for col in complete_df.columns if col not in useless_metadata]

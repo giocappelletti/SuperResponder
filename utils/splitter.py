@@ -41,7 +41,9 @@ class Splitter:
         self.serializer.cache_dataset(dataset, dest_path)
 
 
-    def split_train_test(self, dataset: pd.DataFrame | str, cache_dataset = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def split_train_test(self, 
+                         dataset: pd.DataFrame | str, 
+                         cache_dataset = True) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """
         Splits a dataset into training and test sets, resetting indexes.
         
@@ -54,7 +56,7 @@ class Splitter:
 
         Returns
         -------
-            tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the training and test sets dataframes.
+            tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the training and test sets dataframes plus the labels.
         """
 
         params = validate_config(self.config, "split")
@@ -71,11 +73,12 @@ class Splitter:
 
         self.logger.info(f"Splitting dataset into training {(1 - test_size)*100}% and test {test_size*100}% datasets")
 
-        train_set, test_set = train_test_split(dataset, 
-                                               test_size = test_size, 
-                                               stratify = dataset[stratify], 
-                                               random_state = random_state,
-                                               shuffle = shuffle)
+        train_set, test_set, train_labels, test_labels = train_test_split(dataset,
+                                                                            dataset[stratify],
+                                                                            test_size = test_size, 
+                                                                            stratify = dataset[stratify], 
+                                                                            random_state = random_state,
+                                                                            shuffle = shuffle)
 
         train_set = train_set.reset_index(drop = True)
         test_set = test_set.reset_index(drop = True)
@@ -93,7 +96,7 @@ class Splitter:
                 self._cache(train_set, train_path)
                 self._cache(test_set, test_path)
         
-        return train_set, test_set
+        return train_set, test_set, train_labels, test_labels
 
 
     def split_by_type(self, 

@@ -1,6 +1,6 @@
 cross_val:
   pipeline:
-    classifier: 'Ridge'
+    classifier: 'RF'
     transformation: 'CLR'
     scaler: 'Standard'
     smote: False
@@ -9,7 +9,7 @@ cross_val:
   n_folds: 2
   random_state: 42
   shuffle: True
-  save: True
+  save: False
   visualize: False
   njobs: -1
   save_format: 'csv'  # For metrics DataFrame

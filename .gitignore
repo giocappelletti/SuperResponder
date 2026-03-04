@@ -16,3 +16,6 @@ results/
 
 # Old files from students
 old/
+
+# Temporary files
+temp/

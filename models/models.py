@@ -170,7 +170,7 @@ class Models:
             self.logger.info("Using default scores: ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']")
             scorings = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
 
-        self.logger.info("Computing cross-validation metrics")
+        self.logger.info("Computing metrics")
         cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state)
 
         cv_results_raw = cross_validate(
@@ -233,6 +233,7 @@ class Models:
         }
 
         return results
+
 
     def _aggregate_evaluation_metrics(self, 
                                       train_labels, 

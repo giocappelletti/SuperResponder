@@ -44,7 +44,7 @@ def dimensionality_reduction():
     raw_dataset, taxa_cols, meta_cols = dataloader.load_dataset(dataset_path, drop_response=False, sanitize=True)
 
     # Split
-    train_set, test_set = splitter.split_train_test(raw_dataset)
+    train_set, test_set, _, _ = splitter.split_train_test(raw_dataset)
 
     # Encode labels
     y = le.fit_transform(raw_dataset['response'])

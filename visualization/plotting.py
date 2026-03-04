@@ -1,6 +1,5 @@
-import os
-import time
 import warnings
+from shap import summary_plot
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -832,4 +831,12 @@ class Plotter:
         ax[0].set_title(f"Top Feature Importance by scores ({imp_type})")
         ax[0].invert_yaxis()
         self._close_plot(visualize, save, "feature_importance", "classification", "feature_importance", fig, False)
-         
+
+
+    def _shap_barplot_beeswarm(self, shap_values, data, visualize, save):
+        """
+        Plots SHAP values using both a bar plot and a beeswarm plot.
+        """
+
+        summary_plot(shap_values, data, plot_type = "bar", max_display = 20)
+        summary_plot(shap_values, data, max_display = 20)

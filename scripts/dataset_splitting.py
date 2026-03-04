@@ -21,7 +21,7 @@ def split_dataset():
     splitter = Splitter(dataloader, serializer)
 
     # Split raw dataset in train and test sets
-    train_set, test_set = splitter.split_train_test(raw_dataset)
+    train_set, test_set, train_labels, test_labels = splitter.split_train_test(raw_dataset)
 
     # Filter by cancer type (see config file)
     train_datasets = splitter.split_by_type(train_set, "train")

@@ -26,7 +26,7 @@ def pls_feature_importance():
     # Load dataset
     dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response=False)
     
-    train_df, _ = Splitter(dataloader, serializer).split_train_test(dataset)
+    train_df, _, _, _ = Splitter(dataloader, serializer).split_train_test(dataset)
 
     
     # Instance preprocessor

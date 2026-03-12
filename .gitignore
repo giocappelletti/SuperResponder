@@ -5,6 +5,9 @@
 .cached_datasets/
 __pycache__/
 
+# Data
+datasets/
+
 # Logs
 logs/
 

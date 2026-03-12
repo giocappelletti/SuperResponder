@@ -1,31 +1,29 @@
 import joblib
 import optuna
-import sklearn
 import yaml
 import numpy as np
 import pandas as pd
+from typing import Literal
 
 from imblearn.over_sampling import SMOTE
 from sklearn.calibration import cross_val_predict
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score, cross_validate
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import LabelEncoder, StandardScaler, RobustScaler, MinMaxScaler
-from sklearn.linear_model import LogisticRegression, RidgeClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from collections import namedtuple
 from scipy.stats import mode
 from sklearn.metrics import accuracy_score, average_precision_score, classification_report, f1_score, \
                             precision_score, recall_score, roc_auc_score, roc_curve, precision_recall_curve, auc, confusion_matrix
-from sklearn.decomposition import PCA, KernelPCA
-from typing import Literal
 
-from utils import suggest_xgb_params, suggest_rf_params, suggest_extra_trees_params
+from .suggestion_functions import suggest_xgb_params, suggest_rf_params, suggest_extra_trees_params
+from .component_registry import TRANSFORMATION_MAP, SCALER_MAP, CLASSIFIER_MAP, REDUCTION_MAP
 from logger import logger
-from utils import format_param_grid, validate_config
-from preprocessing import CLRTransformer, TSSTransformer, RankingFeatureSelector, CompReduction, Preprocessor
+from utils import format_dict, validate_config
+from preprocessing import Preprocessor, SmartScaler
 
 
 class Models:
@@ -57,7 +55,7 @@ class Models:
         Dynamic parameter grid building based on YAML file.
         """
 
-        self.logger.info(format_param_grid(param_grid))
+        self.logger.info(format_dict(param_grid))
 
         processed_param_grid = {}
         
@@ -140,99 +138,29 @@ class Models:
         y_pred = model.predict(data)
         y_proba = None
 
-        try:
-            y_proba = model.predict_proba(data)[:, 1]
-
-        except AttributeError:
+        if hasattr(model, 'predict_proba'):
             try:
-                y_proba = model.decision_function(data)
-            
-            except AttributeError:
-                self.logger.warning("Unable to compute probabilities or decision function.")
+                probas = model.predict_proba(data)
+                if probas.ndim == 2 and probas.shape[1] == 2:
+                    y_proba = probas[:, 1]
+                elif probas.ndim == 2 and probas.shape[1] == 1:
+                    self.logger.warning("predict_proba returned a single column. This might indicate a single class in the training fold or an issue with the model's output for binary classification. Setting y_proba to None.")
+                    y_proba = None
+                else:
+                    self.logger.warning(f"predict_proba returned unexpected shape {probas.shape}. Setting y_proba to None.")
+                    y_proba = None
+            except Exception as e:
+                self.logger.warning(f"Error calling predict_proba: {e}. Attempting decision_function.")
+                if hasattr(model, 'decision_function'):
+                    y_proba = model.decision_function(data)
+                else:
+                    self.logger.warning("Unable to compute probabilities or decision function.")
+        elif hasattr(model, 'decision_function'):
+            y_proba = model.decision_function(data)
+        else:
+            self.logger.warning("Unable to compute probabilities or decision function.")
         
         return y_pred, y_proba
-
-
-    def _perform_cross_validation_analysis(self, 
-                                           best_model, 
-                                           train_data, 
-                                           train_labels, 
-                                           n_folds, 
-                                           scorings, 
-                                           njobs, 
-                                           random_state,
-                                           shuffle):
-        """
-        Performs cross-validation and collects data for ROC and PR curves.
-        """
-
-        if scorings is None:
-            self.logger.info("Using default scores: ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']")
-            scorings = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
-
-        self.logger.info("Computing metrics")
-        cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state)
-
-        cv_results_raw = cross_validate(
-            best_model,
-            train_data,
-            train_labels,
-            cv = cv,
-            scoring = scorings,
-            n_jobs = njobs
-        )
-
-        interp_truepos_list = []
-        roc_aucs = []
-        prec_rec = []
-        y_cv_pred = []
-        y_cv_true = []
-        mean_falseposrate = np.linspace(0, 1, 100)
-        mean_recall = np.linspace(0, 1, 100)
-
-        X_train_np = train_data.values if hasattr(train_data, 'values') else train_data
-        y_train_np = train_labels.values if hasattr(train_labels, 'values') else train_labels
-
-        for _, (train_idx, test_idx) in enumerate(cv.split(X_train_np, y_train_np)):
-            X_train_fold = train_data.iloc[train_idx] if hasattr(train_data, 'iloc') else train_data[train_idx]
-            X_test_fold  = train_data.iloc[test_idx]  if hasattr(train_data, 'iloc') else train_data[test_idx]
-            y_train_fold = y_train_np[train_idx]
-            y_test_fold  = y_train_np[test_idx]
-
-            best_model.fit(X_train_fold, y_train_fold)
-            
-            y_pred_fold, y_scores_fold = self._compute_predictions_and_probas(best_model, X_test_fold)
-            y_cv_pred.extend(y_pred_fold)
-            y_cv_true.extend(y_test_fold)
-
-            if y_scores_fold is not None:
-                precision, recall, _ = precision_recall_curve(y_test_fold, y_scores_fold)
-                prec_rec.append(np.interp(mean_recall, recall[::-1], precision[::-1]))
-                fpr, tpr, _ = roc_curve(y_test_fold, y_scores_fold)
-                roc_auc = auc(fpr, tpr)
-                tpr_interp = np.interp(mean_falseposrate, fpr, tpr)
-                tpr_interp[0] = 0.0
-                interp_truepos_list.append(tpr_interp)
-                roc_aucs.append(roc_auc)
-
-        # Aggregate CV metrics
-        cv_metrics_agg = {score: {'mean': round(np.mean(cv_results_raw[f'test_{score}']), 2), 
-                                  'std': round(np.std(cv_results_raw[f'test_{score}']), 2)} 
-                          for score in scorings if f'test_{score}' in cv_results_raw}
-
-        # TODO check if namedtuple is more suitable
-        results = {
-            'cv_metrics_agg': cv_metrics_agg,
-            'interp_truepos_list': interp_truepos_list,
-            'roc_aucs': roc_aucs,
-            'prec_rec': prec_rec,
-            'y_cv_pred': y_cv_pred,
-            'y_cv_true': y_cv_true,
-            'mean_falseposrate': mean_falseposrate,
-            'mean_recall': mean_recall
-        }
-
-        return results
 
 
     def _aggregate_evaluation_metrics(self, 
@@ -292,7 +220,6 @@ class Models:
         
         else:
             # For CV, cv_metrics_agg contains {'score': {'mean': X, 'std': Y}}
-            # We need to extract only the mean for the DataFrame and data_values
             chosen_split_metrics_for_df = {score: data['mean'] for score, data in cv_metrics_agg.items()}
             results['metrics'][splits_label] = cv_metrics_agg # Store full CV metrics (mean and std) in results
 
@@ -300,18 +227,8 @@ class Models:
                                    chosen_split_metrics_for_df], # Use the extracted means for DataFrame
                                    index = ['Train', splits_label]).T
 
-        # Prepare data_values for plotting (e.g., for a table)
-        # This list is used in the original evaluate_classifier return, so it needs to be populated.
-        data_values = [
-            classifier_name,
-            f"{float(chosen_split_metrics_for_df.get('Accuracy', 0)):.2f}",
-            f"{float(chosen_split_metrics_for_df.get('Precision', 0)):.2f}",
-            f"{float(chosen_split_metrics_for_df.get('Recall', 0)):.2f}",
-            f"{float(chosen_split_metrics_for_df.get('F1', 0)):.2f}",
-            f"{float(chosen_split_metrics_for_df.get('roc_auc', 0)):.2f}"
-        ]
-
-        return results, metrics_df, data_values
+    
+        return results, metrics_df
 
 
     def _plot_evaluation_results(self, plot_data):
@@ -319,24 +236,24 @@ class Models:
         Generates and saves/displays all evaluation plots.
         """
 
-        classifier_name = plot_data['classifier_name']
-        metrics_df = plot_data['metrics_df']
-        train_labels = plot_data['train_labels']
-        y_train_pred = plot_data['y_train_pred']
-        y_true_val_plot = plot_data['y_true_val_plot']
-        y_pred_val_plot = plot_data['y_pred_val_plot']
-        fpr_train = plot_data['fpr_train']
-        tpr_train = plot_data['tpr_train']
-        auc_train = plot_data['auc_train']
-        cv_roc_results = plot_data['cv_roc_results']
-        precision_train = plot_data['precision_train']
-        recall_train = plot_data['recall_train']
-        ap_train = plot_data['ap_train']
-        baseline = plot_data['baseline']
-        cv_pr_results = plot_data['cv_pr_results']
-        visualize = plot_data['visualize']
-        save = plot_data['save']
-        splits_label = plot_data['splits_label']
+        classifier_name = plot_data.classifier_name
+        metrics_df = plot_data.metrics_df
+        train_labels = plot_data.train_labels
+        y_train_pred = plot_data.y_train_pred
+        y_true_val_plot = plot_data.y_true_val_plot
+        y_pred_val_plot = plot_data.y_pred_val_plot
+        fpr_train = plot_data.fpr_train
+        tpr_train = plot_data.tpr_train
+        auc_train = plot_data.auc_train
+        cv_roc_results = plot_data.cv_roc_results
+        precision_train = plot_data.precision_train
+        recall_train = plot_data.recall_train
+        ap_train = plot_data.ap_train
+        baseline = plot_data.baseline
+        cv_pr_results = plot_data.cv_pr_results
+        visualize = plot_data.visualize
+        save = plot_data.save
+        splits_label = plot_data.splits_label
 
         self.plotter._plot_metrics_comparison(metrics_df, classifier_name, visualize = visualize, save = save)
 
@@ -492,10 +409,20 @@ class Models:
             'confusion_matrix': confusion_matrix_table
         }
 
-        return metrics, proba_df
+        PredictionMetrics = namedtuple('PredictionMetrics', [
+            'cv_accuracy',
+            'cv_roc_auc',
+            'metrics_class_0',
+            'metrics_class_1',
+            'best_params',
+            'confusion_matrix'
+        ])
+
+        # Return as namedtuple
+        return PredictionMetrics(**metrics), proba_df
 
 
-    def build_pipeline(self, pipeline_dict: dict = None) -> Pipeline:
+    def _build_pipeline(self, pipeline_dict, use_smart_scaler) -> Pipeline:
         """
         Dynamic pipeline building based on YAML file.
         """
@@ -505,46 +432,27 @@ class Models:
         classifier_name = pipeline_dict.get('classifier', None)
         smote = pipeline_dict.get('smote', False)
         reduction_name = pipeline_dict.get('reduction', None)
+        classifier_params = pipeline_dict.get('classifier_params', {})
 
-        transformation = (
-            CLRTransformer if transf_name == "CLR" else
-            TSSTransformer if transf_name == "TSS" else
-            None
-        )
+        transformation = TRANSFORMATION_MAP.get(transf_name)
+        scaler = SCALER_MAP.get(scaler_name)
+        classifier_cls = CLASSIFIER_MAP.get(classifier_name)
+        reduction = REDUCTION_MAP.get(reduction_name)
 
-        scaler = (
-            StandardScaler if scaler_name == "Standard" else
-            RobustScaler if scaler_name == "Robust" else
-            MinMaxScaler if scaler_name == "MinMax" else
-            None
-        )
+        if classifier_cls is None:
+            self.logger.error(f"Invalid classifier name: {classifier_name}")
+            raise ValueError(f"Unsupported classifier: {classifier_name}")
 
-        classifier = (
-            LogisticRegression if classifier_name == "LogReg" else
-            RidgeClassifier if classifier_name == "Ridge" else
-            SVC if classifier_name == "SVM" else
-            MLPClassifier if classifier_name == "MLP" else
-            XGBClassifier if classifier_name == "XGB" else
-            RandomForestClassifier if classifier_name == "RF" else
-            ExtraTreesClassifier if classifier_name == "ExtraTrees" else
-            None
-        )
-
-        reduction = (
-            CompReduction if reduction_name == "Comp" else
-            PCA if reduction_name == "PCA" else
-            KernelPCA if reduction_name == "KPCA" else
-            None
-        )
-
-        if transformation is None or scaler is None or classifier is None:
+        if transformation is None or scaler is None:
             self.logger.error("Invalid pipeline configuration: \n " \
-                              f"transformation = {transf_name}, scaler = {scaler_name}, classifier = {classifier_name}")
+                              f"transformation = {transf_name}, scaler = {scaler_name}")
             raise ValueError()
-            
-        steps = [('transformation', transformation()),
-                 ('scaler', scaler()),
-                 ('classifier', classifier())]
+        
+        if not use_smart_scaler:
+            steps = [('transformation', transformation()),
+                    ('scaler', scaler())]
+        else:
+            steps = [('smartscaler', SmartScaler(transformation, scaler))]
         
         if smote:
             steps.append(('smote', SMOTE()))
@@ -554,7 +462,133 @@ class Models:
             steps.append(('reduction', reduction()))
             self.logger.info(f"Reduction selector injected in pipeline: {reduction.__class__.__name__}")  
 
+        # Istance classifier with conf file params
+        steps.append(('classifier', classifier_cls(**classifier_params)))
+
         return Pipeline(steps)
+
+
+    def cross_validation_analysis(self, 
+                                    best_model: Pipeline, 
+                                    train_data: pd.DataFrame, 
+                                    train_labels: pd.Series, 
+                                    n_folds: int, 
+                                    scorings: list = None, 
+                                    njobs: int = -1, 
+                                    random_state: int = 42,
+                                    shuffle: bool = True) -> dict:
+        """
+        Performs cross-validation and collects data.
+
+        Parameters
+        ----------
+        best_model: sklearn.pipeline.Pipeline
+            The best fitted model.
+        train_data: pd.DataFrame
+            Training features.
+        train_labels: pd.Series
+            Training target labels.
+        n_folds: int
+            Number of folds for cross-validation.
+        scorings: list, optional
+            List of scoring metrics to evaluate. Defaults to None.
+        njobs: int, optional
+            Number of CPU cores to use. Defaults to -1.
+        random_state: int, optional
+            Random seed for reproducibility. Defaults to 42.
+        shuffle: bool, optional
+            Whether to shuffle the data before splitting. Defaults to True.
+
+        Returns
+        -------
+        results: dict
+            Dictionary containing aggregated metrics, ROC/PR curve data, and predictions.
+            
+        """
+
+        if scorings is None:
+            self.logger.info("Using default scores: ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']")
+            scorings = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
+
+        self.logger.info(f"Computing cross-validation on {n_folds} folds")
+        cv = StratifiedKFold(n_splits = n_folds, shuffle = shuffle, random_state = random_state)
+
+        cv_results_raw = cross_validate(
+            best_model,
+            train_data,
+            train_labels,
+            cv = cv,
+            scoring = scorings,
+            n_jobs = njobs
+        )
+
+        interp_truepos_list = []
+        roc_aucs = []
+        prec_rec = []
+        y_cv_pred = []
+        y_cv_true = []
+        mean_falseposrate = np.linspace(0, 1, 100)
+        mean_recall = np.linspace(0, 1, 100)
+
+        X_train_np = train_data.values if hasattr(train_data, 'values') else train_data
+        y_train_np = train_labels.values if hasattr(train_labels, 'values') else train_labels
+
+        for _, (train_idx, test_idx) in enumerate(cv.split(X_train_np, y_train_np)):
+            X_train_fold = train_data.iloc[train_idx] if hasattr(train_data, 'iloc') else train_data[train_idx]
+            X_test_fold  = train_data.iloc[test_idx]  if hasattr(train_data, 'iloc') else train_data[test_idx]
+            y_train_fold = y_train_np[train_idx]
+            y_test_fold  = y_train_np[test_idx]
+
+            best_model.fit(X_train_fold, y_train_fold)
+            
+            y_pred_fold, y_scores_fold = self._compute_predictions_and_probas(best_model, X_test_fold)
+            y_cv_pred.extend(y_pred_fold)
+            y_cv_true.extend(y_test_fold)
+
+            if y_scores_fold is not None:
+                # Check for at least two unique classes in y_test_fold before computing curves
+                if len(np.unique(y_test_fold)) < 2:
+                    self.logger.warning(f"Skipping ROC and PR curve computation for a fold due to single class in y_test_fold.")
+                else:
+                    precision, recall, _ = precision_recall_curve(y_test_fold, y_scores_fold)
+                    prec_rec.append(np.interp(mean_recall, recall[::-1], precision[::-1]))
+                    fpr, tpr, _ = roc_curve(y_test_fold, y_scores_fold)
+                    roc_auc = auc(fpr, tpr)
+                    tpr_interp = np.interp(mean_falseposrate, fpr, tpr)
+                    tpr_interp[0] = 0.0
+                    interp_truepos_list.append(tpr_interp)
+                    roc_aucs.append(roc_auc)
+
+        # Aggregate CV metrics
+        cv_metrics_agg = {score: {'mean': round(np.mean(cv_results_raw[f'test_{score}']), 5),
+                                  'std': round(np.std(cv_results_raw[f'test_{score}']), 5)} 
+                          for score in scorings if f'test_{score}' in cv_results_raw}
+
+        # TODO check if namedtuple is more suitable
+        results = {
+            'cv_metrics_agg': cv_metrics_agg,
+            'interp_truepos_list': interp_truepos_list,
+            'roc_aucs': roc_aucs,
+            'prec_rec': prec_rec,
+            'y_cv_pred': y_cv_pred,
+            'y_cv_true': y_cv_true,
+            'mean_falseposrate': mean_falseposrate,
+            'mean_recall': mean_recall
+        }
+
+        # Define namedtuples for structured returns
+        CVResults = namedtuple('CVResults', [
+            'cv_metrics_agg',
+            'interp_truepos_list',
+            'roc_aucs',
+            'prec_rec',
+            'y_cv_pred',
+            'y_cv_true',
+            'mean_falseposrate',
+            'mean_recall'
+        ])
+
+        return CVResults(**results)
 
 
     def evaluate_classifier(self,
@@ -564,7 +598,8 @@ class Models:
                             val_labels: pd.Series = None, 
                             verbose: int = 1,
                             pipeline: Pipeline = None,
-                            param_grid: dict = None) -> tuple[Pipeline | sklearn.base.BaseEstimator, dict, pd.DataFrame, list]:
+                            param_grid: dict = None,
+                            use_smart_scaler: bool = True) -> tuple[Pipeline, dict, pd.DataFrame, list]:
         """
         Evaluates a model using cross-validation.
         If param_grid is passed, computes GridSearchCV on train_data/train_labels.
@@ -589,17 +624,17 @@ class Models:
             Pre-built scikit-learn Pipeline. Defaults to None. Overrides YAML configuration
         param_grid: dict, optional
             Parameter grid for GridSearchCV. Defaults to None. Overrides YAML configuration
+        use_smart_scaler: bool, optional
+            Whether to use the SmartScaler in the pipeline. Defaults to True.
             
         Returns
         -------
-        best_model: Pipeline or sklearn.base.BaseEstimator
+        best_model: sklearn.pipeline.Pipeline
             The best fitted model (or the original pipeline if no grid search).
         results: dict
             JSON object with results, including full CV metrics (mean and std).
         metrics_df: pd.DataFrame
             DataFrame containing the comparison of metrics between train and validation/CV.
-        data_values: list
-            List of formatted metric values for the chosen split (mean values).
         """
         
         params = validate_config(self.config, "cross_val")
@@ -619,34 +654,33 @@ class Models:
         classifier_name = pipeline_dict.get('classifier', None)
 
         if pipeline is None:
-            pipeline = self.build_pipeline(pipeline_dict)
+            pipeline = self._build_pipeline(pipeline_dict, use_smart_scaler)
 
-        best_model, best_params = self._fit_model_with_grid_search(
+        best_model_pipeline, best_params = self._fit_model_with_grid_search(
             pipeline, train_data, train_labels, textual_param_grid, n_folds, njobs, random_state, verbose, shuffle
         )
 
         self.logger.info("Predicting on train set")
-        y_train_pred, y_train_proba = self._compute_predictions_and_probas(best_model, train_data)
+        y_train_pred, y_train_proba = self._compute_predictions_and_probas(best_model_pipeline, train_data)
 
-        # TODO check if namedtuple is more suitable
-        results = self._perform_cross_validation_analysis(best_model, 
-                                                            train_data, 
-                                                            train_labels, 
-                                                            n_folds, 
-                                                            scorings, 
-                                                            njobs, 
-                                                            random_state,
-                                                            shuffle)
+        results_cv = self.cross_validation_analysis(best_model_pipeline,
+                                                    train_data, 
+                                                    train_labels, 
+                                                    n_folds, 
+                                                    scorings, 
+                                                    njobs, 
+                                                    random_state,
+                                                    shuffle) 
 
-        y_cv_pred = results['y_cv_pred']
-        y_cv_true = results['y_cv_true']
-        interp_truepos_list = results['interp_truepos_list']
-        roc_aucs = results['roc_aucs']
-        prec_rec = results['prec_rec']
-        mean_falseposrate = results['mean_falseposrate']
-        mean_recall = results['mean_recall']
-        cv_metrics_agg = results['cv_metrics_agg']
-
+        y_cv_pred = results_cv.y_cv_pred
+        y_cv_true = results_cv.y_cv_true
+        interp_truepos_list = results_cv.interp_truepos_list
+        roc_aucs = results_cv.roc_aucs
+        prec_rec = results_cv.prec_rec
+        mean_falseposrate = results_cv.mean_falseposrate
+        mean_recall = results_cv.mean_recall
+        cv_metrics_agg = results_cv.cv_metrics_agg
+        
         if len(y_cv_true) > 0:
             cm = confusion_matrix(y_cv_true, y_cv_pred)
             self.plotter._plot_confusion_matrix(cm, visualize, save)
@@ -656,31 +690,28 @@ class Models:
 
         if val_data is not None and val_labels is not None:
             self.logger.info("Computing metrics on validation set")
-            y_val_pred, y_val_proba = self._compute_predictions_and_probas(best_model, val_data)
+            y_val_pred, y_val_proba = self._compute_predictions_and_probas(best_model_pipeline, val_data)
 
-        results, metrics_df, data_values = self._aggregate_evaluation_metrics(
+        evaluation_results_dict, metrics_df = self._aggregate_evaluation_metrics(
             train_labels, y_train_pred, y_train_proba,
             val_labels, y_val_pred, y_val_proba,
             cv_metrics_agg, splits_label, classifier_name
         )
 
-        results['param_grid'] = textual_param_grid
-        results['best_params'] = best_params
+        evaluation_results_dict['param_grid'] = textual_param_grid
+        evaluation_results_dict['best_params'] = best_params
 
-        try:
-            if 'preprocessor' in pipeline.named_steps:
-                if pipeline.named_steps['preprocessor'].transformers:
-                    comp_pipeline = pipeline.named_steps['preprocessor'].transformers[3][1] # Compositional Features
-                else:
-                    comp_pipeline = pipeline # If preprocessor is the only step or directly the pipeline
-            else:
-                comp_pipeline = pipeline
-
-            results['transformation'] = str(comp_pipeline.named_steps.get('transformation', comp_pipeline).__class__.__name__)
-            results['scaler'] = str(comp_pipeline.named_steps.get('scaler', comp_pipeline).__class__.__name__)
-        
-        except Exception as e:
-            self.logger.warning(f"Could not find preprocessor pipeline: {e}")
+        if 'smartscaler' in best_model_pipeline.named_steps:
+            smart_scaler_instance = best_model_pipeline.named_steps['smartscaler']
+            evaluation_results_dict['transformation'] = smart_scaler_instance.transformer.__name__
+            evaluation_results_dict['scaler'] = smart_scaler_instance.scaler.__name__
+        elif 'transformation' in best_model_pipeline.named_steps and 'scaler' in best_model_pipeline.named_steps:
+            evaluation_results_dict['transformation'] = best_model_pipeline.named_steps['transformation'].__class__.__name__
+            evaluation_results_dict['scaler'] = best_model_pipeline.named_steps['scaler'].__class__.__name__
+        else:
+            evaluation_results_dict['transformation'] = None
+            evaluation_results_dict['scaler'] = None
+            self.logger.warning("Could not find transformation and scaler in pipeline")
 
         # Prepare data for plotting
         y_true_val_plot = val_labels if val_labels is not None else np.array(y_cv_true)
@@ -702,8 +733,8 @@ class Models:
         if interp_truepos_list:
             cv_roc_results = {
                 'mean_tpr': mean_tpr,
-                'mean_fpr': mean_falseposrate, # Added mean_fpr for plotting
-                'mean_auc': np.mean(roc_aucs) if roc_aucs else 0.0, # Default to 0.0 if empty
+                'mean_fpr': mean_falseposrate, 
+                'mean_auc': np.mean(roc_aucs) if roc_aucs else 0.0, 
                 'std_auc': np.std(roc_aucs) if roc_aucs else None
             }
 
@@ -718,6 +749,7 @@ class Models:
             baseline = np.sum(train_labels == 1) / len(train_labels)
 
         cv_pr_results = None
+
         if prec_rec:
             cv_pr_results = {
                 'mean_recall': mean_recall,
@@ -725,7 +757,6 @@ class Models:
                 'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0
             }
 
-        # TODO check if namedtuple is more suitable
         plot_data = {
             'classifier_name': classifier_name,
             'metrics_df': metrics_df,
@@ -747,18 +778,44 @@ class Models:
             'splits_label': splits_label
         }
 
-        self._plot_evaluation_results(plot_data)
+        PlotData = namedtuple('PlotData', [
+            'classifier_name',
+            'metrics_df',
+            'train_labels',
+            'y_train_pred',
+            'y_true_val_plot',
+            'y_pred_val_plot',
+            'fpr_train',
+            'tpr_train',
+            'auc_train',
+            'cv_roc_results',
+            'precision_train',
+            'recall_train',
+            'ap_train',
+            'baseline',
+            'cv_pr_results',
+            'visualize',
+            'save',
+            'splits_label'
+        ])
+
+        # Return as namedtuple
+
+        self._plot_evaluation_results(PlotData(**plot_data))
 
         if save:
-            self._save_evaluation_results(results, best_model, metrics_df, classifier_name, save_format)
+            self._save_evaluation_results(evaluation_results_dict, best_model_pipeline, metrics_df, classifier_name, save_format)
 
-        return best_model, results, metrics_df, data_values
+        self.logger.info(f"Results:\n {format_dict(evaluation_results_dict['metrics'])}")
+
+        return best_model_pipeline, evaluation_results_dict, metrics_df
     
 
     def evaluate_classifier_with_optuna(self, 
                                         train_data: pd.DataFrame, 
                                         train_labels: pd.Series, 
-                                        pipeline: Pipeline = None) -> tuple[Pipeline, float, dict]:
+                                        pipeline: Pipeline = None,
+                                        use_smart_scaler: bool = True) -> tuple[Pipeline, float, dict]:
         """
         Optimizes classifier hyperparameters using Optuna.
 
@@ -771,8 +828,9 @@ class Models:
         pipeline: Pipeline, optional
             Pre-built scikit-learn Pipeline. If None, it will be built from YAML config.
             This pipeline should include the classifier step.
-        n_trials: int, optional
-            Number of Optuna trials. Defaults to 100.
+        use_smart_scaler: bool, optional
+            Whether to use the SmartScaler in the pipeline. Defaults to True.
+            
 
         Returns
         -------
@@ -800,7 +858,7 @@ class Models:
         classifier_name = pipeline_dict.get('classifier', None)
 
         if pipeline is None:
-            pipeline = self.build_pipeline(pipeline_dict)
+            pipeline = self._build_pipeline(pipeline_dict, use_smart_scaler)
 
         self.logger.info("Optimizing hyperparameters with Optuna")
 

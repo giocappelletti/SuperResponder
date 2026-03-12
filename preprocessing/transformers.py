@@ -62,43 +62,6 @@ class TSSTransformer(BaseEstimator, TransformerMixin):
         return data.div(data.sum(axis = 1), axis = 0)
 
 
-class RankingFeatureSelector(BaseEstimator, TransformerMixin):
-    """
-    Feature selector based on a pre-computed ranking file.    
-    
-    Parameters
-    ----------
-        ranking: pd.DataFrame or pd.Series
-            The ranking data containing feature names and their respective ranks.
-        threshold: int, default=100
-            The maximum rank value to include. Features with a rank higher than this will be discarded.
-            
-    """
-
-    def __init__(self, dataloader, ranking = "datasets/ranking/ranking_FullTrain.csv", threshold = 100):
-        self.threshold = threshold
-        self.selected_features = None
-        self.dataloader = dataloader
-
-        loaded_ranking = self.dataloader.load_dataset(ranking, drop_response = False, sanitize = False)
-        self.ranking = loaded_ranking.squeeze()  # Converts to Series
-
-
-    def fit(self, X, y=None):
-        """
-        Fits the feature selector by identifying features with a ranking below or equal to the threshold.
-        """
-
-        self.selected_features = self.ranking[self.ranking <= self.threshold].index.tolist()
-        return self
-
-    def transform(self, X):
-        """
-        Applies feature selection by keeping only the features identified during fit.
-        """
-        return X[self.selected_features]
-
-
 class PLSVarianceSelector(BaseEstimator, TransformerMixin):
     """
     Feature selector and dimensionality reducer based on Partial Least Squares (PLS) Regression.
@@ -197,7 +160,7 @@ class CompReduction(BaseEstimator, TransformerMixin):
         return np.hstack((X_meta, X_comp_reduced))
 
 
-class SmartScaler:
+class SmartScaler(BaseEstimator, TransformerMixin):
     """
     Scales the data using the specified transformer and scaler.
 
@@ -213,37 +176,46 @@ class SmartScaler:
             Whether to scale the data to unit variance.
     """
 
-    def __init__(self, transformer = CLRTransformer, scaler = StandardScaler, with_mean = True, with_std = True):
+    def __init__(self, transformer=CLRTransformer, scaler=StandardScaler, with_mean=True, with_std=True):
         self.logger = logger
         
-        self.transformer = transformer()
-        self.logger.info(f"Scaler: Using transformer {self.transformer.__class__.__name__}")
+        self.transformer = transformer
+        self.scaler = scaler           
+        self.with_mean = with_mean     
+        self.with_std = with_std       
+
+        self._transformer_instance = None
+        self._scaler_instance = None
+
+
+    def _instantiate_components(self):
+        """Instantiate transformer and scaler if not already done."""
         
-        self.scaler = scaler(with_mean = with_mean, with_std = with_std)
-        self.logger.info(f"Scaler: Using scaler {self.scaler.__class__.__name__}") 
+        if self._transformer_instance is None:
+            # Instantiate the transformer class
+            self._transformer_instance = self.transformer()
+
+        if self._scaler_instance is None:
+            # Pass with_mean/with_std only if the scaler supports them
+            scaler_kwargs = {}
+            # Check if the scaler's __init__ method accepts 'with_mean' and 'with_std'
+            if 'with_mean' in self.scaler.__init__.__code__.co_varnames:
+                scaler_kwargs['with_mean'] = self.with_mean
+            if 'with_std' in self.scaler.__init__.__code__.co_varnames:
+                scaler_kwargs['with_std'] = self.with_std
+            # Instantiate the scaler class with appropriate kwargs
+            self._scaler_instance = self.scaler(**scaler_kwargs)
     
 
-    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def fit(self, X, y=None):
         """
-        Fits and transforms the data using the specified transformer and scaler.
-        
-        Parameters
-        ----------
-            data: pd.DataFrame
-                Input data to scale and transform
-            
-        Returns
-        -------
-            pd.DataFrame: 
-                Scaled and transformed data
+        Fits the transformer and scaler on the provided data.
         """
-        # Store original column names
-        original_columns = data.columns
-
-        transf_data = self.transformer.fit_transform(data)
-        scaled_array = self.scaler.fit_transform(transf_data)
-        # Convert back to DataFrame, preserving column names
-        return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)
+        self._instantiate_components() # Ensure components are instantiated
+        transf_data = self._transformer_instance.fit_transform(X, y) # Use instance and fit_transform
+        self._scaler_instance.fit(transf_data, y) # Use instance and pass y
+        return self
+    
 
     def transform(self, data) -> pd.DataFrame:
         """
@@ -262,28 +234,7 @@ class SmartScaler:
         # Store original column names
         original_columns = data.columns
 
-        transf_data = self.transformer.transform(data)
-        scaled_array = self.scaler.transform(transf_data)
-        return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)
-    
-
-    def transform_then_fit_transform(self, data) -> pd.DataFrame:
-        """
-        Transforms then fits the data using the specified transformer and scaler.
-        
-        Parameters
-        ----------
-            data: pd.DataFrame
-                Input data to scale and transform
-            
-        Returns
-        -------
-            pd.DataFrame: 
-                Scaled and transformed data
-        """
-        # Store original column names
-        original_columns = data.columns
-
-        transf_data = self.transformer.transform(data)
-        scaled_array = self.scaler.fit_transform(transf_data)
+        self._instantiate_components() # Ensure components are instantiated
+        transf_data = self._transformer_instance.transform(data) # Use instance
+        scaled_array = self._scaler_instance.transform(transf_data) # Use instance
         return pd.DataFrame(scaled_array, index=data.index, columns=original_columns)

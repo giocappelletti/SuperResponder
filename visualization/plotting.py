@@ -833,10 +833,14 @@ class Plotter:
         self._close_plot(visualize, save, "feature_importance", "classification", "feature_importance", fig, False)
 
 
-    def _shap_barplot_beeswarm(self, shap_values, data, visualize, save):
+    def _shap_barplot_beeswarm(self, shap_values, data, visualize):
         """
         Plots SHAP values using both a bar plot and a beeswarm plot.
         """
-
-        summary_plot(shap_values, data, plot_type = "bar", max_display = 20)
-        summary_plot(shap_values, data, max_display = 20)
+        
+        if visualize:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+            summary_plot(shap_values, data, plot_type = "bar", max_display = 20)
+            summary_plot(shap_values, data, max_display = 20)
+        

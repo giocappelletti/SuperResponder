@@ -101,8 +101,7 @@ class SHAPExplainer:
                             data: pd.DataFrame | np.ndarray, 
                             extract_index: int | list[int] = None, 
                             negate: bool = False,
-                            visualize: bool = True,
-                            save: bool = False) -> np.ndarray | list[np.ndarray]:
+                            visualize: bool = True) -> np.ndarray | list[np.ndarray]:
         """
         Computes SHAP values for the given data.
 
@@ -117,8 +116,6 @@ class SHAPExplainer:
             If True, negates the extracted SHAP values (useful for binary classification).7
         visualize : bool, optional
             Whether to display the plots.
-        save : bool, optional
-            Whether to save the plots.
 
         Returns
         -------
@@ -144,7 +141,32 @@ class SHAPExplainer:
             self.logger.error(f"extract_index must be either None, int or list[int], got {type(extract_index)}")
             raise ValueError()
         
-        self.plotter._shap_barplot_beeswarm(shap_values, data, visualize, save)
+        self.plotter._shap_barplot_beeswarm(shap_values, data, visualize)
 
         return shap_values
     
+
+    def get_top_features(self, shap_values: np.ndarray, index: pd.Index, head: int = 50):
+        """
+        Aggregates SHAP values across samples to identify the most important features.
+        Parameters
+        ----------
+        shap_values : np.ndarray
+            SHAP values for the given data.
+        index : pd.Index
+            Feature names.
+        head : int, optional
+            Number of top features to return, default 50.
+
+        Returns
+        -------
+        top_features : list
+            List of top feature names.
+        """
+
+        mean_shap = np.abs(shap_values).mean(axis = 0)
+        shap_importance = pd.Series(mean_shap, index = index)
+        top = shap_importance.sort_values(ascending = False).head(head)
+
+        return top.index.tolist()
+

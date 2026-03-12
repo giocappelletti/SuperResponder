@@ -22,15 +22,20 @@ def format_pipeline(pipeline: Pipeline, name):
     return pipeline_str
 
 
-def format_param_grid(param_grid: dict):
+def format_dict(data: dict, indent: int = 0):
     """
-    Helper method to format a parameter grid for readable logging.
+    Helper method to format a dictionary (potentially nested) for readable logging.
     """
     
-    param_grid_str = f"Parameter grid:\n"
-    for param, values in param_grid.items():
-        param_grid_str += f"  - {param}: {values}\n"
-    return param_grid_str
+    formatted_str = ""
+    indent_str = "  " * indent
+    for key, value in data.items():
+        if isinstance(value, dict):
+            formatted_str += f"{indent_str}- {key}:\n{format_dict(value, indent + 1)}"
+        else:
+            formatted_str += f"{indent_str}- {key}: {value}\n"
+    return formatted_str
+
 
 
 def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):

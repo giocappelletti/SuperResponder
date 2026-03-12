@@ -33,7 +33,7 @@ def hard_ensemble_voting():
     # Load dataset
     dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response = False)
     
-    _, test_df = Splitter(dataloader=dataloader, serializer=serializer).split_train_test(dataset)
+    _, test_df, _, _ = Splitter(dataloader=dataloader, serializer=serializer).split_train_test(dataset)
     
     le = LabelEncoder()
     y_test = le.fit_transform(test_df['response'])
@@ -44,14 +44,13 @@ def hard_ensemble_voting():
     x_test = test_df.drop(columns = ['response'])
 
     models_instance.hard_voting_ensemble(models_paths,
-                                  x_test,
-                                  y_test,
-                                  labels,
-                                  compute_roc = True,
-                                  taxa_cols = taxa_cols,
-                                  visualize = True,
-                                  save = False
-                                  )
+                                        x_test,
+                                        y_test,
+                                        labels,
+                                        compute_roc = True,
+                                        taxa_cols = taxa_cols,
+                                        visualize = True,
+                                        save = False)
 
 
 if __name__ == "__main__":

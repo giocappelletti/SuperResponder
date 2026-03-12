@@ -55,8 +55,8 @@ def dimensionality_reduction():
     dataset = raw_dataset.drop(columns=['response'])[taxa_cols]
     
     # Transform and Scale 
-    dataset_transformed = full_scaler.transform_then_fit_transform(dataset)
-    train_transformed = split_scaler.transform_then_fit_transform(train_set[taxa_cols])
+    dataset_transformed = full_scaler.fit_transform(dataset)
+    train_transformed = split_scaler.fit_transform(train_set[taxa_cols])
     
     # Test set must not be fitted
     test_transformed = split_scaler.transform(test_set[taxa_cols])

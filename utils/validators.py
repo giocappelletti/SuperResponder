@@ -223,7 +223,7 @@ def validate_config(config: dict, section: str) -> dict:
     
     if "pipeline" in needed:
         params["pipeline"] = s_config.get('pipeline', None)
-        validate_dict_of_strings(params["pipeline"])
+        validate_config_param_type("pipeline", params["pipeline"], dict)
 
     if "n_trials" in needed:
         params["n_trials"] = s_config.get('n_trials', 10)

@@ -27,7 +27,7 @@ def run_feature_importance():
     dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, drop_response=False)
     
     # Split to obtain a training set
-    train_df, _ = Splitter(dataloader, serializer).split_train_test(dataset)
+    train_df, _, _, _ = Splitter(dataloader, serializer).split_train_test(dataset)
     
     # Remove index column, it's not needed
     train_df.reset_index(drop=True)

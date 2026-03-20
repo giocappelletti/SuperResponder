@@ -23,13 +23,13 @@ SCALER_MAP = {
 
 # Mapping for classifier components
 CLASSIFIER_MAP = {
-    "LogReg": LogisticRegression,
+    "LR": LogisticRegression,
     "Ridge": RidgeClassifier,
     "SVM": SVC,
     "MLP": MLPClassifier,
     "XGB": XGBClassifier,
     "RF": RandomForestClassifier,
-    "ExtraTrees": ExtraTreesClassifier,
+    "ET": ExtraTreesClassifier,
 }
 
 # Mapping for reduction components

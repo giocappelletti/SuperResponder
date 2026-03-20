@@ -180,7 +180,8 @@ class SmartScaler(BaseEstimator, TransformerMixin):
         self.logger = logger
         
         self.transformer = transformer
-        self.scaler = scaler           
+        self.scaler = scaler
+
         self.with_mean = with_mean     
         self.with_std = with_std       
 
@@ -190,12 +191,12 @@ class SmartScaler(BaseEstimator, TransformerMixin):
 
     def _instantiate_components(self):
         """Instantiate transformer and scaler if not already done."""
-        
-        if self._transformer_instance is None:
+
+        if self._transformer_instance is None and self.transformer is not None:
             # Instantiate the transformer class
             self._transformer_instance = self.transformer()
 
-        if self._scaler_instance is None:
+        if self._scaler_instance is None and self.scaler is not None:
             # Pass with_mean/with_std only if the scaler supports them
             scaler_kwargs = {}
             # Check if the scaler's __init__ method accepts 'with_mean' and 'with_std'
@@ -215,7 +216,7 @@ class SmartScaler(BaseEstimator, TransformerMixin):
         transf_data = self._transformer_instance.fit_transform(X, y) # Use instance and fit_transform
         self._scaler_instance.fit(transf_data, y) # Use instance and pass y
         return self
-    
+
 
     def transform(self, data) -> pd.DataFrame:
         """

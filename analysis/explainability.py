@@ -149,6 +149,7 @@ class SHAPExplainer:
     def get_top_features(self, shap_values: np.ndarray, index: pd.Index, head: int = 50):
         """
         Aggregates SHAP values across samples to identify the most important features.
+        
         Parameters
         ----------
         shap_values : np.ndarray

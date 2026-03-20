@@ -55,7 +55,7 @@ class Models:
         Dynamic parameter grid building based on YAML file.
         """
 
-        self.logger.info(format_dict(param_grid))
+        self.logger.info(f"Parameter grid:\n{format_dict(param_grid)}")
 
         processed_param_grid = {}
         
@@ -143,20 +143,27 @@ class Models:
                 probas = model.predict_proba(data)
                 if probas.ndim == 2 and probas.shape[1] == 2:
                     y_proba = probas[:, 1]
+
                 elif probas.ndim == 2 and probas.shape[1] == 1:
-                    self.logger.warning("predict_proba returned a single column. This might indicate a single class in the training fold or an issue with the model's output for binary classification. Setting y_proba to None.")
+                    self.logger.warning("predict_proba returned a single column (this might indicate a single class in the training fold). Setting y_proba to None.")
                     y_proba = None
+                
                 else:
-                    self.logger.warning(f"predict_proba returned unexpected shape {probas.shape}. Setting y_proba to None.")
+                    self.logger.warning(f"predict_proba returned an unexpected shape {probas.shape}. Setting y_proba to None.")
                     y_proba = None
+            
             except Exception as e:
                 self.logger.warning(f"Error calling predict_proba: {e}. Attempting decision_function.")
+                
                 if hasattr(model, 'decision_function'):
                     y_proba = model.decision_function(data)
+                
                 else:
                     self.logger.warning("Unable to compute probabilities or decision function.")
+        
         elif hasattr(model, 'decision_function'):
             y_proba = model.decision_function(data)
+        
         else:
             self.logger.warning("Unable to compute probabilities or decision function.")
         
@@ -440,19 +447,28 @@ class Models:
         reduction = REDUCTION_MAP.get(reduction_name)
 
         if classifier_cls is None:
-            self.logger.error(f"Invalid classifier name: {classifier_name}")
-            raise ValueError(f"Unsupported classifier: {classifier_name}")
-
-        if transformation is None or scaler is None:
-            self.logger.error("Invalid pipeline configuration: \n " \
-                              f"transformation = {transf_name}, scaler = {scaler_name}")
+            self.logger.error(f"Invalid classifier name: {classifier_cls}")
             raise ValueError()
+
+
+        steps = []
         
         if not use_smart_scaler:
-            steps = [('transformation', transformation()),
-                    ('scaler', scaler())]
+            if transformation is not None:
+                steps.append(('transformation', transformation()))
+            if scaler is not None:
+                steps.append(('scaler', scaler()))
+            if transformation is None and scaler is None:
+                self.logger.warning("Both transformation and scaler are None. Fitting on raw data")
         else:
+            if transformation is None and scaler is None:
+                self.logger.error("Cannot use SmartScaler without transformation and scaler")
+                raise ValueError("Cannot use SmartScaler without transformation and scaler")
+
             steps = [('smartscaler', SmartScaler(transformation, scaler))]
+        
+        self.logger.info(f"Transformation: {transf_name}")
+        self.logger.info(f"Scaler: {scaler_name}")
         
         if smote:
             steps.append(('smote', SMOTE()))
@@ -461,9 +477,10 @@ class Models:
         if reduction is not None:
             steps.append(('reduction', reduction()))
             self.logger.info(f"Reduction selector injected in pipeline: {reduction.__class__.__name__}")  
-
         # Istance classifier with conf file params
-        steps.append(('classifier', classifier_cls(**classifier_params)))
+        classifier_instance = classifier_cls(**classifier_params)
+        steps.append(('classifier', classifier_instance))
+        self.logger.info(f"Using classifier: {classifier_instance.__class__.__name__}")
 
         return Pipeline(steps)
 
@@ -564,7 +581,6 @@ class Models:
                                   'std': round(np.std(cv_results_raw[f'test_{score}']), 5)} 
                           for score in scorings if f'test_{score}' in cv_results_raw}
 
-        # TODO check if namedtuple is more suitable
         results = {
             'cv_metrics_agg': cv_metrics_agg,
             'interp_truepos_list': interp_truepos_list,
@@ -599,7 +615,8 @@ class Models:
                             verbose: int = 1,
                             pipeline: Pipeline = None,
                             param_grid: dict = None,
-                            use_smart_scaler: bool = True) -> tuple[Pipeline, dict, pd.DataFrame, list]:
+                            use_smart_scaler: bool = True,
+                            skip_cv: bool = False) -> tuple[Pipeline, dict, pd.DataFrame, list]:
         """
         Evaluates a model using cross-validation.
         If param_grid is passed, computes GridSearchCV on train_data/train_labels.
@@ -626,6 +643,8 @@ class Models:
             Parameter grid for GridSearchCV. Defaults to None. Overrides YAML configuration
         use_smart_scaler: bool, optional
             Whether to use the SmartScaler in the pipeline. Defaults to True.
+        skip_cv: bool, optional
+            Whether to skip cross-validation. Defaults to False.
             
         Returns
         -------
@@ -633,8 +652,6 @@ class Models:
             The best fitted model (or the original pipeline if no grid search).
         results: dict
             JSON object with results, including full CV metrics (mean and std).
-        metrics_df: pd.DataFrame
-            DataFrame containing the comparison of metrics between train and validation/CV.
         """
         
         params = validate_config(self.config, "cross_val")
@@ -663,152 +680,155 @@ class Models:
         self.logger.info("Predicting on train set")
         y_train_pred, y_train_proba = self._compute_predictions_and_probas(best_model_pipeline, train_data)
 
-        results_cv = self.cross_validation_analysis(best_model_pipeline,
-                                                    train_data, 
-                                                    train_labels, 
-                                                    n_folds, 
-                                                    scorings, 
-                                                    njobs, 
-                                                    random_state,
-                                                    shuffle) 
-
-        y_cv_pred = results_cv.y_cv_pred
-        y_cv_true = results_cv.y_cv_true
-        interp_truepos_list = results_cv.interp_truepos_list
-        roc_aucs = results_cv.roc_aucs
-        prec_rec = results_cv.prec_rec
-        mean_falseposrate = results_cv.mean_falseposrate
-        mean_recall = results_cv.mean_recall
-        cv_metrics_agg = results_cv.cv_metrics_agg
+        evaluation_results_dict = None
         
-        if len(y_cv_true) > 0:
-            cm = confusion_matrix(y_cv_true, y_cv_pred)
-            self.plotter._plot_confusion_matrix(cm, visualize, save)
+        if not skip_cv:
+            results_cv = self.cross_validation_analysis(best_model_pipeline,
+                                                        train_data, 
+                                                        train_labels, 
+                                                        n_folds, 
+                                                        scorings, 
+                                                        njobs, 
+                                                        random_state,
+                                                        shuffle) 
 
-        y_val_pred = None
-        y_val_proba = None
+            y_cv_pred = results_cv.y_cv_pred
+            y_cv_true = results_cv.y_cv_true
+            interp_truepos_list = results_cv.interp_truepos_list
+            roc_aucs = results_cv.roc_aucs
+            prec_rec = results_cv.prec_rec
+            mean_falseposrate = results_cv.mean_falseposrate
+            mean_recall = results_cv.mean_recall
+            cv_metrics_agg = results_cv.cv_metrics_agg
+            
+            if len(y_cv_true) > 0:
+                cm = confusion_matrix(y_cv_true, y_cv_pred)
+                self.plotter._plot_confusion_matrix(cm, visualize, save)
 
-        if val_data is not None and val_labels is not None:
-            self.logger.info("Computing metrics on validation set")
-            y_val_pred, y_val_proba = self._compute_predictions_and_probas(best_model_pipeline, val_data)
+            y_val_pred = None
+            y_val_proba = None
 
-        evaluation_results_dict, metrics_df = self._aggregate_evaluation_metrics(
-            train_labels, y_train_pred, y_train_proba,
-            val_labels, y_val_pred, y_val_proba,
-            cv_metrics_agg, splits_label, classifier_name
-        )
+            if val_data is not None and val_labels is not None:
+                self.logger.info("Computing metrics on validation set")
+                y_val_pred, y_val_proba = self._compute_predictions_and_probas(best_model_pipeline, val_data)
 
-        evaluation_results_dict['param_grid'] = textual_param_grid
-        evaluation_results_dict['best_params'] = best_params
+            evaluation_results_dict, metrics_df = self._aggregate_evaluation_metrics(
+                train_labels, y_train_pred, y_train_proba,
+                val_labels, y_val_pred, y_val_proba,
+                cv_metrics_agg, splits_label, classifier_name
+            )
 
-        if 'smartscaler' in best_model_pipeline.named_steps:
-            smart_scaler_instance = best_model_pipeline.named_steps['smartscaler']
-            evaluation_results_dict['transformation'] = smart_scaler_instance.transformer.__name__
-            evaluation_results_dict['scaler'] = smart_scaler_instance.scaler.__name__
-        elif 'transformation' in best_model_pipeline.named_steps and 'scaler' in best_model_pipeline.named_steps:
-            evaluation_results_dict['transformation'] = best_model_pipeline.named_steps['transformation'].__class__.__name__
-            evaluation_results_dict['scaler'] = best_model_pipeline.named_steps['scaler'].__class__.__name__
-        else:
-            evaluation_results_dict['transformation'] = None
-            evaluation_results_dict['scaler'] = None
-            self.logger.warning("Could not find transformation and scaler in pipeline")
+            evaluation_results_dict['param_grid'] = textual_param_grid
+            evaluation_results_dict['best_params'] = best_params
 
-        # Prepare data for plotting
-        y_true_val_plot = val_labels if val_labels is not None else np.array(y_cv_true)
-        y_pred_val_plot = y_val_pred if y_val_pred is not None else np.array(y_cv_pred)
+            if 'smartscaler' in best_model_pipeline.named_steps:
+                smart_scaler_instance = best_model_pipeline.named_steps['smartscaler']
+                evaluation_results_dict['transformation'] = smart_scaler_instance.transformer.__name__
+                evaluation_results_dict['scaler'] = smart_scaler_instance.scaler.__name__
+            elif 'transformation' in best_model_pipeline.named_steps and 'scaler' in best_model_pipeline.named_steps:
+                evaluation_results_dict['transformation'] = best_model_pipeline.named_steps['transformation'].__class__.__name__
+                evaluation_results_dict['scaler'] = best_model_pipeline.named_steps['scaler'].__class__.__name__
+            else:
+                evaluation_results_dict['transformation'] = None
+                evaluation_results_dict['scaler'] = None
+                self.logger.warning("Could not find transformation and scaler in pipeline")
 
-        fpr_train = None
-        tpr_train = None
-        auc_train = None
+            # Prepare data for plotting
+            y_true_val_plot = val_labels if val_labels is not None else np.array(y_cv_true)
+            y_pred_val_plot = y_val_pred if y_val_pred is not None else np.array(y_cv_pred)
 
-        if y_train_proba is not None and len(np.unique(train_labels)) > 1:
-            fpr_train, tpr_train, _ = roc_curve(train_labels, y_train_proba)
-            auc_train = roc_auc_score(train_labels, y_train_proba)
+            fpr_train = None
+            tpr_train = None
+            auc_train = None
 
-        mean_tpr = np.mean(interp_truepos_list, axis=0) if interp_truepos_list else None
-        if mean_tpr is not None:
-            mean_tpr[-1] = 1.0
+            if y_train_proba is not None and len(np.unique(train_labels)) > 1:
+                fpr_train, tpr_train, _ = roc_curve(train_labels, y_train_proba)
+                auc_train = roc_auc_score(train_labels, y_train_proba)
 
-        cv_roc_results = None
-        if interp_truepos_list:
-            cv_roc_results = {
-                'mean_tpr': mean_tpr,
-                'mean_fpr': mean_falseposrate, 
-                'mean_auc': np.mean(roc_aucs) if roc_aucs else 0.0, 
-                'std_auc': np.std(roc_aucs) if roc_aucs else None
+            mean_tpr = np.mean(interp_truepos_list, axis=0) if interp_truepos_list else None
+            if mean_tpr is not None:
+                mean_tpr[-1] = 1.0
+
+            cv_roc_results = None
+            if interp_truepos_list:
+                cv_roc_results = {
+                    'mean_tpr': mean_tpr,
+                    'mean_fpr': mean_falseposrate, 
+                    'mean_auc': np.mean(roc_aucs) if roc_aucs else 0.0, 
+                    'std_auc': np.std(roc_aucs) if roc_aucs else None
+                }
+
+            precision_train = None
+            recall_train = None
+            ap_train = None 
+            baseline = None
+
+            if y_train_proba is not None and len(np.unique(train_labels)) > 1:
+                precision_train, recall_train, _ = precision_recall_curve(train_labels, y_train_proba)
+                ap_train = average_precision_score(train_labels, y_train_proba)
+                baseline = np.sum(train_labels == 1) / len(train_labels)
+
+            cv_pr_results = None
+
+            if prec_rec:
+                cv_pr_results = {
+                    'mean_recall': mean_recall,
+                    'mean_precision': np.mean(prec_rec, axis=0),
+                    'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0
+                }
+
+            plot_data = {
+                'classifier_name': classifier_name,
+                'metrics_df': metrics_df,
+                'train_labels': train_labels,
+                'y_train_pred': y_train_pred,
+                'y_true_val_plot': y_true_val_plot,
+                'y_pred_val_plot': y_pred_val_plot,
+                'fpr_train': fpr_train,
+                'tpr_train': tpr_train,
+                'auc_train': auc_train,
+                'cv_roc_results': cv_roc_results,
+                'precision_train': precision_train,
+                'recall_train': recall_train,
+                'ap_train': ap_train,
+                'baseline': baseline,
+                'cv_pr_results': cv_pr_results,
+                'visualize': visualize,
+                'save': save,
+                'splits_label': splits_label
             }
 
-        precision_train = None
-        recall_train = None
-        ap_train = None 
-        baseline = None
+            PlotData = namedtuple('PlotData', [
+                'classifier_name',
+                'metrics_df',
+                'train_labels',
+                'y_train_pred',
+                'y_true_val_plot',
+                'y_pred_val_plot',
+                'fpr_train',
+                'tpr_train',
+                'auc_train',
+                'cv_roc_results',
+                'precision_train',
+                'recall_train',
+                'ap_train',
+                'baseline',
+                'cv_pr_results',
+                'visualize',
+                'save',
+                'splits_label'
+            ])
 
-        if y_train_proba is not None and len(np.unique(train_labels)) > 1:
-            precision_train, recall_train, _ = precision_recall_curve(train_labels, y_train_proba)
-            ap_train = average_precision_score(train_labels, y_train_proba)
-            baseline = np.sum(train_labels == 1) / len(train_labels)
+            # Return as namedtuple
 
-        cv_pr_results = None
+            self._plot_evaluation_results(PlotData(**plot_data))
 
-        if prec_rec:
-            cv_pr_results = {
-                'mean_recall': mean_recall,
-                'mean_precision': np.mean(prec_rec, axis=0),
-                'mean_ap': np.mean(roc_aucs) if roc_aucs else 0.0
-            }
+            if save:
+                self._save_evaluation_results(evaluation_results_dict, best_model_pipeline, metrics_df, classifier_name, save_format)
 
-        plot_data = {
-            'classifier_name': classifier_name,
-            'metrics_df': metrics_df,
-            'train_labels': train_labels,
-            'y_train_pred': y_train_pred,
-            'y_true_val_plot': y_true_val_plot,
-            'y_pred_val_plot': y_pred_val_plot,
-            'fpr_train': fpr_train,
-            'tpr_train': tpr_train,
-            'auc_train': auc_train,
-            'cv_roc_results': cv_roc_results,
-            'precision_train': precision_train,
-            'recall_train': recall_train,
-            'ap_train': ap_train,
-            'baseline': baseline,
-            'cv_pr_results': cv_pr_results,
-            'visualize': visualize,
-            'save': save,
-            'splits_label': splits_label
-        }
+            self.logger.info(f"Results:\n {format_dict(evaluation_results_dict['metrics'])}")
 
-        PlotData = namedtuple('PlotData', [
-            'classifier_name',
-            'metrics_df',
-            'train_labels',
-            'y_train_pred',
-            'y_true_val_plot',
-            'y_pred_val_plot',
-            'fpr_train',
-            'tpr_train',
-            'auc_train',
-            'cv_roc_results',
-            'precision_train',
-            'recall_train',
-            'ap_train',
-            'baseline',
-            'cv_pr_results',
-            'visualize',
-            'save',
-            'splits_label'
-        ])
-
-        # Return as namedtuple
-
-        self._plot_evaluation_results(PlotData(**plot_data))
-
-        if save:
-            self._save_evaluation_results(evaluation_results_dict, best_model_pipeline, metrics_df, classifier_name, save_format)
-
-        self.logger.info(f"Results:\n {format_dict(evaluation_results_dict['metrics'])}")
-
-        return best_model_pipeline, evaluation_results_dict, metrics_df
+        return best_model_pipeline, evaluation_results_dict
     
 
     def evaluate_classifier_with_optuna(self, 

@@ -22,3 +22,8 @@ old/
 
 # Temporary files
 temp/
+
+# Datasets/Results
+*.xlsx
+*.csv
+*.tsv

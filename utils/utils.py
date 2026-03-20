@@ -14,6 +14,9 @@ def sanitize_filename(name):
 def format_pipeline(pipeline: Pipeline, name):
     """
     Helper method to format a Scikit-learn Pipeline for readable logging.
+
+    Parameters:
+        pipeline (Pipeline): L'oggetto pipeline di scikit-learn.
     """
 
     pipeline_str = f"  - {name} pipeline:\n"
@@ -25,6 +28,9 @@ def format_pipeline(pipeline: Pipeline, name):
 def format_dict(data: dict, indent: int = 0):
     """
     Helper method to format a dictionary (potentially nested) for readable logging.
+
+    Parameters:
+        data (dict): Il dizionario da formattare.
     """
     
     formatted_str = ""
@@ -35,7 +41,6 @@ def format_dict(data: dict, indent: int = 0):
         else:
             formatted_str += f"{indent_str}- {key}: {value}\n"
     return formatted_str
-
 
 
 def compute_contingency(dataset: pd.DataFrame, var1: str, var2: str):

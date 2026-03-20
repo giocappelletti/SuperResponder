@@ -8,9 +8,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from sklearn.calibration import LabelEncoder
-from sklearn.preprocessing import StandardScaler
 
-from preprocessing import CLRTransformer, Preprocessor
 from models import Models
 from utils import Splitter
 
@@ -38,8 +36,8 @@ def cross_validation():
     # Instance models class injecting dependencies
     models = Models(serializer, plotter)
 
-    _, results, _ = models.evaluate_classifier(train_taxa[taxa_cols],
-                                               train_labels)
+    model, _ = models.evaluate_classifier(train_taxa[taxa_cols], train_labels)
+
 
 if __name__ == "__main__":
     cross_validation()

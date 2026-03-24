@@ -21,6 +21,7 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, pseudo_count = None):
+        self.logger = logger # Initialize logger
         self.pseudo_count = pseudo_count
     
 
@@ -28,8 +29,34 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
         """
         Applies CLR transformation to the input data.
         """
-        data = data + self.pseudo_count if self.pseudo_count is not None else multi_replace(data)
-        return clr(data)
+        # Store original index and columns
+        original_index = data.index
+        original_columns = data.columns
+
+        # Ensure data is a DataFrame for consistent handling
+        if isinstance(data, pd.Series):
+            data_to_process = data.to_frame().T
+        else:
+            data_to_process = data.copy() # Work on a copy
+        
+        # Apply pseudo_count or multi_replace to the values
+        if self.pseudo_count is not None:
+            processed_values = (data_to_process + self.pseudo_count).values
+        else:
+            processed_values = multi_replace(data_to_process.values)
+        
+        clr_transformed_array = clr(processed_values)
+
+        # Handle potential shape mismatch for single-sample inputs from clr
+        # If clr returns (N, 1) when (1, N) is expected for a single sample
+        if clr_transformed_array.ndim == 2 and \
+           clr_transformed_array.shape[1] == 1 and \
+           len(original_index) == 1 and \
+           clr_transformed_array.shape[0] == len(original_columns):
+            self.logger.warning(f"CLR output shape {clr_transformed_array.shape} for single sample, transposing to match original columns.")
+            clr_transformed_array = clr_transformed_array.T # Transpose to (1, N)
+
+        return pd.DataFrame(clr_transformed_array, index=original_index, columns=original_columns)
     
 
     def fit(self, x, y = None): # Must write x and y to avoid errors

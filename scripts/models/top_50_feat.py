@@ -21,7 +21,7 @@ from models import Models
 def explainability():
     
 
-    dataset_path = os.path.join(project_root, 'datasets', 'table_species_reads.tsv')
+    dataset_path = os.path.join(project_root, 'datasets', 'raw_dataset.csv')
     scorings = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
 
     dataset, taxa_cols, _ = dataloader.load_dataset(dataset_path, False)
@@ -36,7 +36,7 @@ def explainability():
     
     train_labels = labelenc.fit_transform(train_labels_raw) # Fit on train_labels_raw to get all possible classes
     
-    model_pipeline, _, _, _ = models.evaluate_classifier(train_taxa, # Don't use metadata
+    model_pipeline, _ = models.evaluate_classifier(train_taxa, # Don't use metadata
                                                          train_labels)
 
     model = model_pipeline.named_steps['classifier'] # Get fitted model instance
@@ -68,7 +68,7 @@ def explainability():
         random_state = 42,
         shuffle = True)
     
-    print(res_top['cv_metrics_agg'])
+    print(res_top.cv_metrics_agg)
     
     # Pick 50 random features
     random_feats = [random.randint(0, 4630) for _ in range(50)]
@@ -92,7 +92,7 @@ def explainability():
         shuffle = True
     )
 
-    print(res_rnd['cv_metrics_agg'])
+    print(res_rnd.cv_metrics_agg)
     
 
 if __name__ == "__main__":

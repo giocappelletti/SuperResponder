@@ -60,6 +60,7 @@ class Models:
         processed_param_grid = {}
         
         for key, value in param_grid.items():
+            
             if isinstance(value, dict) and value.get('_type_') == 'logspace':
                 # Build logspace from yaml file
                 processed_param_grid[key] = np.logspace(value['start'], value['stop'], value['num'])

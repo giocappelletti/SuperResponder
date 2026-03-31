@@ -1,8 +1,10 @@
 import sys
 import os
+import statistics
 
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import StratifiedKFold
+from sklearn.base import clone
 
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_script_dir, os.pardir, os.pardir))
@@ -35,132 +37,109 @@ def explainability():
     dataset_labels = labelenc.fit_transform(dataset['response']) # O - Non responder, 1 - Responder
 
     top_n_feats_list = [10, 20, 30, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 4630]
-    accuracies = {}
-    means = {}
-    stds = {}
-    features_matrix = {}
+    accuracies_per_n = {n: [] for n in top_n_feats_list}
+    fold_results_per_n = {n: [] for n in top_n_feats_list}
+    features_matrix_per_n = {n: [] for n in top_n_feats_list}
 
 
     outer_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    
+    for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(outer_cv.split(dataset_taxa, dataset_labels)):
+        print(f"\n--- FOLD {fold_idx + 1}/5 ---")
+        outer_train, outer_test = dataset_taxa.iloc[outer_train_idx], dataset.iloc[outer_test_idx]
+        outer_train_labels, outer_test_labels = dataset_labels[outer_train_idx], dataset_labels[outer_test_idx]
 
-    for n in top_n_feats_list:
-        # Nested cross validation
-        fold_results = []
-        top_feat_list = []
-        all_accuracies = []
-        print(f"LabelEncoder mapping: {list(labelenc.classes_)} -> {list(range(len(labelenc.classes_)))}")
+        # Fit on outer train set to find best hyperparameters via Grid Search
+        best_model_pipeline, _ = models.evaluate_classifier(
+            outer_train, 
+            outer_train_labels,
+            skip_cv=True
+        )
 
-        print(f"TOP {n} FEATURES")
+        best_model = best_model_pipeline.named_steps['classifier']
+        scaler = best_model_pipeline.named_steps.get('smartscaler')
+        
+        # Trasformazione dei dati (Cruciale per il microbiota, es. TSS o CLR)
+        if scaler is not None:
+            scaled_outer_train = pd.DataFrame(scaler.transform(outer_train), columns=outer_train.columns, index=outer_train.index)
+            scaled_outer_test = pd.DataFrame(scaler.transform(outer_test[taxa_cols]), columns=taxa_cols, index=outer_test.index)
+        else:
+            scaled_outer_train = outer_train.copy()
+            scaled_outer_test = outer_test[taxa_cols].copy()
+        
+        # Computiamo i valori SHAP ESCLUSIVAMENTE SUL TRAIN SET (Evita il Data Leakage)
+        explainer = SHAPExplainer(plotter, best_model)
+        shap_vals = explainer.compute_shap_values(scaled_outer_test, visualize=False, extract_index=1)
+        
+        # Estraiamo l'ordine delle feature dal più importante al meno importante
+        # Utilizziamo len(taxa_cols) per ottenere tutte le feature ordinate
+        all_top_feat = explainer.get_top_features(shap_vals, scaled_outer_test.columns, head=len(taxa_cols))
 
-        for _, (outer_train_idx, outer_test_idx) in enumerate(outer_cv.split(dataset_taxa, dataset_labels)):
-            outer_train, outer_test = dataset_taxa.iloc[outer_train_idx], dataset.iloc[outer_test_idx]
-            outer_train_labels, outer_test_labels = dataset_labels[outer_train_idx], dataset_labels[outer_test_idx]
-
-            # Fit on outer train set 
-            best_model_pipeline, _, = models.evaluate_classifier(outer_train, # Don't use metadata
-                                                                outer_train_labels,
-                                                                skip_cv=True)
+        for n in top_n_feats_list:
+            # Seleziona le top N feature
+            top_feat = all_top_feat[:n]
+            features_matrix_per_n[n].append(top_feat)
             
-            best_model = best_model_pipeline.named_steps['classifier'] # Get fitted model instance
+            # Clona il classificatore per avere un modello intatto con i best parameters
+            retrained_model = clone(best_model)
             
-            explainer = SHAPExplainer(plotter, best_model)
+            # Train e Test sui dati trasformati e ridotti
+            retrained_model.fit(scaled_outer_train[top_feat], outer_train_labels)
+            y_pred = retrained_model.predict(scaled_outer_test[top_feat])
             
-            shap_vals = explainer.compute_shap_values(outer_test[taxa_cols], visualize = False, extract_index = 1)
-
-            top_feat = explainer.get_top_features(shap_vals, outer_test[taxa_cols].columns, head=n) # Get the n top features list
-
-            top_feat_list.append(top_feat)
+            fold_results_per_n[n].append(accuracy_score(y_true=outer_test_labels, y_pred=y_pred))
             
-            top_feat_train = outer_train[top_feat] # Select only n columns
-
-            best_model.fit(top_feat_train, outer_train_labels)
-
-            complete_resp = outer_test[outer_test['ORR'] == 'CR']
-            partial_resp = outer_test[outer_test['ORR'] == 'PR']
-            partial_dis = outer_test[outer_test['ORR'] == 'PD']
-            dead = outer_test[outer_test['ORR'] == 'Dead']
-            meta_complete = complete_resp[meta_cols]
-            meta_partial_resp = partial_resp[meta_cols]
-            meta_partial_dis = partial_dis[meta_cols]
-            meta_dead = dead[meta_cols]
-
+            # Analisi Sottogruppi ORR
             subsets = {
-                'CR': pd.concat([meta_complete, complete_resp[top_feat]], axis=1),
-                'PR': pd.concat([meta_partial_resp, partial_resp[top_feat]], axis=1),
-                'PD': pd.concat([meta_partial_dis, partial_dis[top_feat]], axis=1),
-                'Dead': pd.concat([meta_dead, dead[top_feat]], axis=1)
+                'CR': outer_test[outer_test['ORR'] == 'CR'],
+                'PR': outer_test[outer_test['ORR'] == 'PR'],
+                'PD': outer_test[outer_test['ORR'] == 'PD'],
+                'Dead': outer_test[outer_test['ORR'] == 'Dead']
             }
-
+            
             accuracies_dict = {}
-
             for name, subset_df in subsets.items():
-                if not subset_df.empty:
-                    if subset_df.shape[0] > 1:
-                        subset_features = subset_df[top_feat]
-                        subset_labels_raw = subset_df['response']
-
-                        # Use the same LabelEncoder to transform test set labels
-                        subset_labels_encoded = labelenc.transform(subset_labels_raw)
-                        y_pred_subset = best_model.predict(subset_features)
-
-                        accuracies_dict[name] = accuracy_score(subset_labels_encoded, y_pred_subset)
-                        if name == "Dead":
-                            print("DEAD PREDICTIONS")
-                            print(y_pred_subset)
-
+                if subset_df.shape[0] > 0:
+                    subset_features = scaled_outer_test.loc[subset_df.index, top_feat]
+                    subset_labels_encoded = labelenc.transform(subset_df['response'])
+                    y_pred_subset = retrained_model.predict(subset_features)
+                    accuracies_dict[name] = accuracy_score(subset_labels_encoded, y_pred_subset)
                 else:
                     accuracies_dict[name] = None
+            
+            accuracies_per_n[n].append(accuracies_dict)
+            print(accuracies_dict)
 
-            all_accuracies.append(accuracies_dict)
-
-       
-            y_pred = best_model.predict(outer_test[top_feat])
-            fold_results.append(accuracy_score(y_true=outer_test_labels, y_pred=y_pred))
+    # Aggregazione finale delle metriche su tutti i fold per ciascun N
+    final_means = {}
+    final_stds = {}
+    final_accuracies = {}
+    
+    for n in top_n_feats_list:
+        final_means[n] = pd.Series(fold_results_per_n[n]).mean()
+        final_stds[n] = pd.Series(fold_results_per_n[n]).std()
         
+        cr_accs = [acc['CR'] for acc in accuracies_per_n[n] if acc['CR'] is not None]
+        pr_accs = [acc['PR'] for acc in accuracies_per_n[n] if acc['PR'] is not None]
+        pd_accs = [acc['PD'] for acc in accuracies_per_n[n] if acc['PD'] is not None]
+        dead_accs = [acc['Dead'] for acc in accuracies_per_n[n] if acc['Dead'] is not None]
         
-        CR_acc = [acc_dict.get('CR', None) for acc_dict in all_accuracies]
-        PR_acc = [acc_dict.get('PR', None) for acc_dict in all_accuracies]
-        PD_acc = [acc_dict.get('PD', None) for acc_dict in all_accuracies]
-        Dead_acc = [acc_dict.get('Dead', None) for acc_dict in all_accuracies]
-
-        CR_acc = [x for x in CR_acc if x is not None]
-        PR_acc = [x for x in PR_acc if x is not None]
-        PD_acc = [x for x in PD_acc if x is not None]
-        Dead_acc = [x for x in Dead_acc if x is not None]
-
-        if CR_acc:
-            mean_cr_acc = statistics.fmean(CR_acc)
-        if PR_acc:
-            mean_pr_acc = statistics.fmean(PR_acc)
-        if PD_acc:
-            mean_pd_acc = statistics.fmean(PD_acc)
-        if Dead_acc:
-            mean_dead_acc = statistics.fmean(Dead_acc)
-        else:
-            mean_dead_acc = "NO DEADS"
-
-        accuracies_dict= {
-            'CR': mean_cr_acc,
-            'PR': mean_pr_acc,
-            'PD': mean_pd_acc,
-            'Dead': mean_dead_acc
+        final_accuracies[n] = {
+            'CR': statistics.fmean(cr_accs) if cr_accs else "NO CR",
+            'PR': statistics.fmean(pr_accs) if pr_accs else "NO PR",
+            'PD': statistics.fmean(pd_accs) if pd_accs else "NO PD",
+            'Dead': statistics.fmean(dead_accs) if dead_accs else "NO DEADS"
         }
-        print(accuracies_dict)
-        accuracies[n] = accuracies_dict
-        
-        means[n] = pd.DataFrame(fold_results).mean().to_dict()
-        stds[n] = pd.DataFrame(fold_results).std().to_dict()
-        features_matrix[n] = top_feat_list
+        print(f"Aggregated metrics for N={n}: {final_accuracies[n]}")
 
-    
-    mean_df = pd.DataFrame(means)
-    std_df = pd.DataFrame(stds)
-    accuracies_df = pd.DataFrame(accuracies)
-    top_feat_df = pd.DataFrame(features_matrix)
-    
+    mean_df = pd.DataFrame([final_means], index=['Mean Accuracy'])
+    std_df = pd.DataFrame([final_stds], index=['Std Accuracy'])
+    accuracies_df = pd.DataFrame(final_accuracies)
+    top_feat_df = pd.DataFrame(features_matrix_per_n)
+
     metrics_df = pd.concat([mean_df, std_df, accuracies_df], axis=0)
 
-    metrics_df.to_excel("features_ablation_study_raw.xlsx", float_format="%.4f", sheet_name="Feature Ablation Study")
+    #metrics_df.to_excel("features_ablation_study_raw_random_cv.xlsx", float_format="%.4f", sheet_name="Feature Ablation Study")
     top_feat_df.to_csv("top_features.csv")
 
 

@@ -16,8 +16,8 @@ def suggest_logistic_regression_params(trial):
         params['penalty'] = trial.suggest_categorical('penalty', ['l1', 'l2', 'elasticnet'])
         if params['penalty'] == 'elasticnet':
             params['l1_ratio'] = trial.suggest_float('l1_ratio', 0.0, 1.0)
-    else: # lbfgs, newton-cg, sag (only l2)
-        params['penalty'] = 'l2' # lbfgs only supports l2
+    else: 
+        params['penalty'] = 'l2' 
     
     return params
 

@@ -2,11 +2,12 @@ import os
 import time
 import json
 import joblib
-from typing import Literal # Keep this, it's used
+from typing import Literal
 import pandas as pd
 
 from logger import logger
 from utils.utils import sanitize_filename
+
 
 class Serialization:
     """
@@ -65,7 +66,7 @@ class Serialization:
                 data.to_csv(f"{path}.{save_format}", sep = separator, index = index)
             
             elif save_format == "xlsx":
-                data.to_excel(f"{path}.{save_format}", index = index)
+                data.to_excel(f"{path}.{save_format}", index = index, float_format = "%.4f")
             
             elif save_format == "json":
                 if not isinstance(data, dict):

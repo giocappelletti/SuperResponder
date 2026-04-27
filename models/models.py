@@ -1125,6 +1125,7 @@ class Models:
                             save_format: Literal['csv', 'tsv', 'xlsx'] = 'csv') -> pd.DataFrame:
         """
         Computes feature importance scores from a fitted model and saves the results.
+        
         Parameters
         ----------
         data: pd.DataFrame

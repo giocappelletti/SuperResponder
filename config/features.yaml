@@ -1,4 +1,3 @@
-# Metadata and Feature Configuration for Responder Project
 features:
   useless_metadata:
     - samples

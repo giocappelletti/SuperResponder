@@ -37,7 +37,7 @@ class CLRTransformer(BaseEstimator, TransformerMixin):
         if isinstance(data, pd.Series):
             data_to_process = data.to_frame().T
         else:
-            data_to_process = data.copy() # Work on a copy
+            data_to_process = data.copy() 
         
         # Apply pseudo_count or multi_replace to the values
         if self.pseudo_count is not None:

@@ -10,7 +10,6 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 from sklearn.utils.validation import check_is_fitted 
-import matplotlib.pyplot as plt
 
 from logger import logger
 
@@ -69,15 +68,15 @@ class SHAPExplainer:
                 self.logger.error("KernelExplainer needs 'background_data' to compute SHAP values")
                 raise ValueError()
 
-            if hasattr(model, 'predict_proba') and callable(model.predict_proba):
-                prediction_function = model.predict_proba
+            if isinstance(model, SVC) and model.kernel == 'linear':
+                # Use Linear Explainer if SVC kernel is linear, mathematically optimal
+                self.explainer = shap.LinearExplainer(model, background_data, **shap_explainer_params) # type: ignore
+                self.logger.info("Initialized LinearExplainer for SVC with linear kernel")
             
-            else: # Fallback 
-                prediction_function = model.predict
-            
-            self.explainer = shap.KernelExplainer(prediction_function, background_data, **shap_explainer_params) # type: ignore
-            self.logger.info(f"Initialized KernelExplainer with background data and prediction function: {prediction_function.__name__}")
-        
+            else:
+                self.explainer = shap.KernelExplainer(model, background_data, **shap_explainer_params) # type: ignore
+                self.logger.info(f"Initialized KernelExplainer for {type(model).__name__}")
+
         else:
             self.logger.error(f"Model {type(model)} not supported for SHAPExplainer.")
             raise ValueError()
@@ -93,6 +92,8 @@ class SHAPExplainer:
 
         elif hasattr(shap_values, "ndim") and shap_values.ndim == 3 and index is not None:
             sv_rf = shap_values[:, :, index]
+        else:
+            sv_rf = shap_values
 
         return -sv_rf if negate else sv_rf
     
@@ -170,4 +171,3 @@ class SHAPExplainer:
         top = shap_importance.sort_values(ascending = False).head(head)
 
         return top.index.tolist()
-

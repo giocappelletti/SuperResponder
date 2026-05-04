@@ -3,7 +3,7 @@
 This repository hosts the code used to analyze gut microbioma data for the Paper "Toward Precision Oncology: Machine and Deep Learning Prediction of Immunotherapy Response from Gut Microbiome Profiles". 
 
 <p align="center">
-<img src="assets/graph_abs_sharp.png" alt="graph_abs" width="700"/>
+<img src="assets/graphical_abstract_EB.jpg" alt="graph_abs" width="700"/>
 </p>
 
 Authors:
